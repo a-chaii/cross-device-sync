@@ -118,13 +118,13 @@ const html = `<!doctype html>
 
   /* ---------- 链路图 ---------- */
   .chain{
-    display:flex;flex-wrap:wrap;align-items:stretch;justify-content:center;
+    display:flex;flex-wrap:wrap;align-items:center;justify-content:center;
     gap:4px;margin:0 auto clamp(44px,8vh,76px);
   }
 
   .node{
     position:relative;
-    width:clamp(118px,21vw,158px);
+    width:clamp(112px,17vw,152px);
     padding:18px 12px 16px;
     border-radius:18px;
     text-align:center;
@@ -157,7 +157,7 @@ const html = `<!doctype html>
   /* 连接器：纯 CSS 虚线 + 箭头 */
   .link{
     position:relative;flex:0 0 auto;
-    width:clamp(38px,7vw,74px);
+    width:clamp(30px,4.6vw,68px);
     display:flex;align-items:center;justify-content:center;
     min-height:24px;
   }
