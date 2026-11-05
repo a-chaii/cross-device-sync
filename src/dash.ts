@@ -470,7 +470,7 @@ function dashHtml(): string {
     <div class="tblwrap">
       <table>
         <thead><tr>
-          <th>时间</th><th>电量</th><th>变化</th><th>距上次掉电</th><th>状态</th><th>版本</th>
+          <th>时间</th><th>电量</th><th>变化</th><th>距上次掉电</th><th>状态</th><th title="该设备这条记录被成功写入的次数，去重跳过的采样也会计入，所以不连续">写入序</th>
         </tr></thead>
         <tbody id="rows"></tbody>
       </table>
@@ -666,7 +666,7 @@ function drawChart(series){
       g.globalAlpha=1;
       if(series.length<4){
         hp.push({x:qx,y:qy,html:'<b style="color:'+se.color+'">'+esc(se.label)+'</b><br>'+
-          fmtT(q.t)+'<br>电量 '+q.l+'%'+(isCh(q)?' · 充电中':'')+'<br>版本 v'+q.v});
+          fmtT(q.t)+'<br>电量 '+q.l+'%'+(isCh(q)?' · 充电中':'')+'<br>第 '+q.v+' 次写入'});
       }
     }
     var lp=p[p.length-1];
@@ -877,11 +877,11 @@ function renderTable(its){
        '<td class="num '+cls+'">'+dtxt+'</td>'+
        '<td class="num">'+(r.drop?'<b class="drop">'+sdtxt+'</b>':sdtxt)+'</td>'+
        '<td>'+(r.c?'充电':'放电')+'</td>'+
-       '<td class="num">v'+r.v+'</td>'+
+       '<td class="num" title="该记录第 '+r.v+' 次成功写入；不连续是因为去重跳过的采样也计入了计数">#'+r.v+'</td>'+
        '</tr>';
   }
   $('rows').innerHTML=h||
-    '<tr><td colspan="6" class="empty">暂无采样，等下一次上报。</td></tr>';
+    '<tr><td colspan="7" class="empty">暂无采样，等下一次上报。</td></tr>';
   $('logMeta').textContent='共 '+all.length+' 条 · 显示 '+view.length;
 }
 function renderAll(){
