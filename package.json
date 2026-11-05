@@ -4,6 +4,7 @@
   "private": true,
   "description": "跨端同步服务 — Cloudflare Workers + KV 的最小化键值同步 API",
   "type": "module",
+  "packageManager": "bun@1.2.15",
   "scripts": {
     "dev": "wrangler dev",
     "deploy": "wrangler deploy",
@@ -13,6 +14,6 @@
   "devDependencies": {
     "@cloudflare/workers-types": "^4.20250109.0",
     "typescript": "^5.7.2",
-    "wrangler": "^3.99.0"
+    "wrangler": "^4.157.0"
   }
 }

@@ -76,7 +76,7 @@ npx wrangler secret put SYNC_TOKEN
 3. 构建配置：构建命令留空（或 `npm install`），部署命令 `npx wrangler deploy`
 4. 之后每次 push 到 `main`，Cloudflare 自动拉取代码并部署
 
-> 用这种方式时，请删除 `.github/workflows/deploy.yml`，避免和 Actions 重复部署。
+> 本项目已采用方式 A，因此 `.github/workflows/` 下的 Actions 部署文件已移除，避免重复部署。
 
 **方式 B：GitHub Actions**
 
@@ -103,8 +103,7 @@ npm run dev
 ├── src/index.ts                 # Worker 全部逻辑
 ├── wrangler.toml                # Worker 配置 / KV 绑定 / 变量
 ├── tsconfig.json
-├── package.json
-└── .github/workflows/deploy.yml # 方式 B 的自动部署（可选）
+└── package.json
 ```
 
 ---

@@ -6,11 +6,10 @@ compatibility_date = "2025-01-01"
 [vars]
 ALLOW_ORIGIN = "*"
 
-# KV 命名空间：先在 Cloudflare 控制台或 wrangler kv namespace create SYNC_KV 创建，
-# 然后把返回的 id 填到下面。
+# KV 命名空间（已创建：SYNC_KV）
 [[kv_namespaces]]
 binding = "SYNC_KV"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "a04c41a10fc748e7a34e631d5a29e27e"
 
 # 机密（不要在文件里写死）：
 #   npx wrangler secret put SYNC_TOKEN
