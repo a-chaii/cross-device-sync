@@ -8,7 +8,10 @@
  * 路由：
  *   GET    /                 -> 服务状态页
  *   GET    /health           -> 健康检查
- *   GET    /list?prefix=xxx  -> 列出键（最多 100 条）
+ *   GET    /list?prefix=xxx  -> 列出键（最多 100 条，屏蔽 @ 前缀的内部键）
+ *   GET    /dash             -> 中转数据看板（密码登录，独立 cookie 鉴权）
+ *   POST   /dash             -> 提交看板密码
+ *   GET    /dash/data        -> 看板数据 JSON（需看板 cookie）
  *   GET    /:key             -> 读取单条记录
  *   HEAD   /:key             -> 只返回版本信息（响应头 X-Sync-Version / X-Sync-Updated）
  *   PUT    /:key             -> 写入，body: { "value": <any JSON> }
@@ -19,11 +22,13 @@
  */
 
 import intro from './intro';
+import { appendHist, check, data as dashData, handleLogin, loginPage, page as dashPage } from './dash';
 
 export interface Env {
   SYNC_KV: KVNamespace;
   SYNC_TOKEN: string;
   ALLOW_ORIGIN?: string;
+  DASH_PWD?: string;
 }
 
 interface SyncRecord {
@@ -102,7 +107,7 @@ DELETE /:key                       # 需头 x-sync-token</pre>
 </html>`;
 
 export default {
-  async fetch(request: Request, env: Env): Promise<Response> {
+  async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     const cors = corsHeaders(env);
     const url = new URL(request.url);
     const path = url.pathname;
@@ -126,6 +131,27 @@ export default {
       return json({ ok: true, service: 'cross-device-sync', time: new Date().toISOString() }, 200, cors);
     }
 
+    // ---- 中转数据看板（独立 cookie 鉴权，不走 x-sync-token）----
+    if (path === '/dash' || path === '/dash/') {
+      if (method === 'GET' || method === 'HEAD') {
+        return (await check(request, env)) ? dashPage() : loginPage();
+      }
+      if (method === 'POST') {
+        return handleLogin(request, env);
+      }
+      return new Response('method_not_allowed', { status: 405 });
+    }
+
+    if (path === '/dash/data' && method === 'GET') {
+      if (!(await check(request, env))) {
+        return json({ error: 'unauthorized', hint: '请先访问 /dash 登录' }, 401);
+      }
+      const k = url.searchParams.get('key') || 'watch/battery';
+      if (k.charAt(0) === '@') return json({ error: 'invalid_key' }, 400);
+      const r = Number(url.searchParams.get('range') || '0');
+      return dashData(env, k, Number.isFinite(r) && r > 0 ? r : 0);
+    }
+
     if (!authorized(request, env)) {
       return json({ error: 'unauthorized', hint: '请在请求头携带正确的 x-sync-token' }, 401, cors);
     }
@@ -138,7 +164,9 @@ export default {
         {
           prefix,
           cursor: listed.list_complete ? null : listed.cursor,
-          keys: listed.keys.map((k) => ({ key: k.name, updatedAt: (k.metadata as { updatedAt?: string } | null)?.updatedAt ?? null })),
+          keys: listed.keys
+            .filter((k) => k.name.charAt(0) !== '@') // 内部键（如 @hist:*）不对外暴露
+            .map((k) => ({ key: k.name, updatedAt: (k.metadata as { updatedAt?: string } | null)?.updatedAt ?? null })),
         },
         200,
         cors,
@@ -219,6 +247,11 @@ export default {
       await env.SYNC_KV.put(key, JSON.stringify(next), {
         metadata: { updatedAt: next.updatedAt, version: next.version },
       });
+
+      // 顺便记一个历史采样点（异步，不拖慢上报）
+      if (ctx && typeof ctx.waitUntil === 'function') {
+        ctx.waitUntil(appendHist(env, key, value, next.version));
+      }
 
       return json(next, 200, {
         ...cors,
