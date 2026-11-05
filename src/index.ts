@@ -18,6 +18,8 @@
  * 记录格式：{ key, value, version, updatedAt }
  */
 
+import intro from './intro';
+
 export interface Env {
   SYNC_KV: KVNamespace;
   SYNC_TOKEN: string;
@@ -115,6 +117,10 @@ export default {
         headers: { 'content-type': 'text/html; charset=utf-8', ...cors },
       });
     }
+    // 项目介绍页（WatchSync 落地页，纯前端静态，无需鉴权）
+    if ((path === '/intro' || path === '/intro/') && (method === 'GET' || method === 'HEAD')) {
+      return intro.fetch(request);
+    }
 
     if (path === '/health' && method === 'GET') {
       return json({ ok: true, service: 'cross-device-sync', time: new Date().toISOString() }, 200, cors);
@@ -132,7 +138,7 @@ export default {
         {
           prefix,
           cursor: listed.list_complete ? null : listed.cursor,
-          keys: listed.keys.map((k) => ({ key: k.name, updatedAt: k.metadata?.updatedAt ?? null })),
+          keys: listed.keys.map((k) => ({ key: k.name, updatedAt: (k.metadata as { updatedAt?: string } | null)?.updatedAt ?? null })),
         },
         200,
         cors,
