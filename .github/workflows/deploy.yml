@@ -1,0 +1,36 @@
+name: Deploy to Cloudflare Workers
+
+# ⚠️ 二选一：
+#  A) 使用 Cloudflare 控制台的 Workers Builds（Git 集成，推荐，不需要存 CF Token）
+#     -> 请删除本文件，或把下行的 push 触发器注释掉
+#  B) 使用 GitHub Actions 部署（需要在仓库 Secrets 里配置 CF_API_TOKEN / CF_ACCOUNT_ID）
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    name: Deploy
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci || npm install
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Publish
+        uses: cloudflare/wrangler-action@v3
+        with:
+          apiToken: ${{ secrets.CF_API_TOKEN }}
+          accountId: ${{ secrets.CF_ACCOUNT_ID }}
+          command: deploy

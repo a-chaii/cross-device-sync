@@ -1,0 +1,20 @@
+name = "cross-device-sync"
+main = "src/index.ts"
+compatibility_date = "2025-01-01"
+
+# 预览/生产环境共用的变量（非机密）
+[vars]
+ALLOW_ORIGIN = "*"
+
+# KV 命名空间：先在 Cloudflare 控制台或 wrangler kv namespace create SYNC_KV 创建，
+# 然后把返回的 id 填到下面。
+[[kv_namespaces]]
+binding = "SYNC_KV"
+id = "REPLACE_WITH_KV_NAMESPACE_ID"
+
+# 机密（不要在文件里写死）：
+#   npx wrangler secret put SYNC_TOKEN
+# 或在 Cloudflare 控制台 Workers -> Settings -> Variables and Secrets 添加
+
+[observability]
+enabled = true
