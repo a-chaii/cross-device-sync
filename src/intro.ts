@@ -67,6 +67,14 @@ const html = `<!doctype html>
   }
 
   .wrap{max-width:1040px;margin:0 auto;padding:clamp(40px,9vh,96px) 20px 56px}
+  .back{position:fixed;left:16px;top:16px;z-index:20;display:inline-flex;align-items:center;gap:6px;
+        text-decoration:none;color:var(--muted);font-size:.74rem;border:1px solid var(--line);
+        background:rgba(18,24,38,.78);border-radius:999px;padding:5px 11px;
+        -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+        transition:color .2s,border-color .2s,transform .2s}
+  .back:hover{color:var(--txt);border-color:rgba(120,150,255,.34);transform:translateX(-2px)}
+  .back:focus-visible{outline:2px solid var(--blue, #3b82f6);outline-offset:2px}
+
 
   /* ---------- 入场动画 ---------- */
   .reveal{opacity:0;animation:rise .75s cubic-bezier(.22,.72,.28,1) forwards;animation-delay:var(--d,0s)}
@@ -252,6 +260,8 @@ const html = `<!doctype html>
 </head>
 <body>
 <div class="bg" aria-hidden="true"></div>
+<a class="back" href="/" title="返回控制台">&larr; 控制台</a>
+
 
 <main class="wrap">
   <header class="hero">

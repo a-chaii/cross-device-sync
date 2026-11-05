@@ -22,6 +22,7 @@
  */
 
 import intro from './intro';
+import hub from './hub';
 import { appendHist, check, data as dashData, handleLogin, loginPage, page as dashPage } from './dash';
 
 export interface Env {
@@ -77,34 +78,7 @@ function normalizeKey(raw: string): string | null {
   return key;
 }
 
-const STATUS_HTML = `<!doctype html>
-<html lang="zh-CN">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>跨端同步服务</title>
-<style>
-  body{font-family:ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;
-       max-width:44rem;margin:0 auto;padding:2.5rem 1.25rem;line-height:1.7;color:#1f2430}
-  code{background:#f2f3f7;border-radius:4px;padding:.1rem .35rem;font-size:.9em}
-  pre{background:#f2f3f7;border-radius:8px;padding:1rem;overflow-x:auto}
-  h1{font-size:1.5rem;margin-bottom:.25rem}
-  .tag{display:inline-block;background:#e8f5ec;color:#1a7f45;border-radius:999px;
-       padding:.1rem .6rem;font-size:.78rem;vertical-align:middle}
-</style>
-</head>
-<body>
-<h1>跨端同步服务 <span class="tag">running</span></h1>
-<p>基于 Cloudflare Workers + KV 的最小化跨端键值同步 API。</p>
-<pre>GET    /health
-GET    /list?prefix=yourapp/
-GET    /:key
-HEAD   /:key
-PUT    /:key    { "value": ... }   # 需头 x-sync-token
-DELETE /:key                       # 需头 x-sync-token</pre>
-<p>鉴权头：<code>x-sync-token</code>（服务端密钥 <code>SYNC_TOKEN</code>）</p>
-</body>
-</html>`;
+
 
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
@@ -117,10 +91,8 @@ export default {
       return new Response(null, { status: 204, headers: cors });
     }
 
-    if (path === '/' && method === 'GET') {
-      return new Response(STATUS_HTML, {
-        headers: { 'content-type': 'text/html; charset=utf-8', ...cors },
-      });
+    if ((path === '/' || path === '/index.html') && (method === 'GET' || method === 'HEAD')) {
+      return hub();
     }
     // 项目介绍页（WatchSync 落地页，纯前端静态，无需鉴权）
     if ((path === '/intro' || path === '/intro/') && (method === 'GET' || method === 'HEAD')) {
@@ -187,11 +159,17 @@ export default {
 
     if (method === 'GET') {
       if (!record) return json({ error: 'not_found', key }, 404, cors);
-      return json(record, 200, {
+      const etag = '"' + record.version + '-' + record.updatedAt + '"';
+      const vh = {
         ...cors,
+        etag,
         'x-sync-version': String(record.version),
         'x-sync-updated': record.updatedAt,
-      });
+      };
+      if (request.headers.get('if-none-match') === etag) {
+        return new Response(null, { status: 304, headers: vh });
+      }
+      return json(record, 200, vh);
     }
 
     if (method === 'HEAD') {

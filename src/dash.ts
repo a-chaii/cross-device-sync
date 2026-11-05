@@ -231,9 +231,18 @@ function loginHtml(err?: string): string {
          font-weight:600;transition:filter .15s}
   button:hover{filter:brightness(1.08)}
   .err{margin-top:12px;color:var(--red);font-size:.8rem}
+  .back{position:fixed;left:16px;top:16px;z-index:20;display:inline-flex;align-items:center;gap:6px;
+        text-decoration:none;color:var(--muted);font-size:.74rem;border:1px solid var(--line);
+        background:rgba(18,24,38,.78);border-radius:999px;padding:5px 11px;
+        -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+        transition:color .2s,border-color .2s,transform .2s}
+  .back:hover{color:var(--txt);border-color:rgba(120,150,255,.34);transform:translateX(-2px)}
+  .back:focus-visible{outline:2px solid var(--blue, #3b82f6);outline-offset:2px}
+
 </style>
 </head>
 <body>
+<a class="back" href="/" title="返回控制台">&larr; 控制台</a>
 <form class="box" method="POST" action="/dash" autocomplete="off">
   <h1>中转看板</h1>
   <p class="sub">仅用于查看跨端同步服务经过的数据统计。</p>
@@ -300,6 +309,14 @@ function dashHtml(): string {
        vertical-align:middle}
   .empty{color:var(--muted);font-size:.8rem;padding:16px 4px}
   footer{color:var(--muted);font-size:.72rem;text-align:center;margin-top:16px;line-height:1.7}
+  .back{position:fixed;left:16px;top:16px;z-index:20;display:inline-flex;align-items:center;gap:6px;
+        text-decoration:none;color:var(--muted);font-size:.74rem;border:1px solid var(--line);
+        background:rgba(18,24,38,.78);border-radius:999px;padding:5px 11px;
+        -webkit-backdrop-filter:blur(8px);backdrop-filter:blur(8px);
+        transition:color .2s,border-color .2s,transform .2s}
+  .back:hover{color:var(--txt);border-color:rgba(120,150,255,.34);transform:translateX(-2px)}
+  .back:focus-visible{outline:2px solid var(--blue, #3b82f6);outline-offset:2px}
+
 </style>
 </head>
 <body>
@@ -307,6 +324,8 @@ function dashHtml(): string {
   <header>
     <div class="brand">中转数据看板<span id="hint">加载中…</span></div>
     <div class="actions">
+      <a class="back" href="/" title="返回控制台">&larr; 控制台</a>
+
       <select id="key" title="数据键"></select>
       <select id="range" title="时间范围">
         <option value="10800000">3 小时</option>
