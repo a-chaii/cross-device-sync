@@ -118,10 +118,13 @@ export default {
       if (!(await check(request, env))) {
         return json({ error: 'unauthorized', hint: '请先访问 /dash 登录' }, 401);
       }
-      const k = url.searchParams.get('key') || 'watch/battery';
-      if (k.charAt(0) === '@') return json({ error: 'invalid_key' }, 400);
+      // key=* 或省略 -> 多设备总览；range 单位毫秒，0/缺省 = 全部
+      const raw = url.searchParams.get('key');
+      const k = raw && raw.length > 0 ? raw : '*';
+      if (k !== '*' && k.charAt(0) === '@') return json({ error: 'invalid_key' }, 400);
       const r = Number(url.searchParams.get('range') || '0');
-      return dashData(env, k, Number.isFinite(r) && r > 0 ? r : 0);
+      const range = Number.isFinite(r) && r > 0 ? Math.min(r, 90 * 86400000) : 0;
+      return dashData(env, k, range);
     }
 
     if (!authorized(request, env)) {
