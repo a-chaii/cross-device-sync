@@ -18,7 +18,8 @@
  */
 const COOKIE = 'ws_dash';
 const HIST_LIMIT = 2000;
-const GAP_SAMPLE_MS = 30 * 60 * 1000; // 数值没变化时，最多 30 分钟补一个采样点
+// 注意：以前这里有个「值没变也每 30 分钟补一个点」的 GAP_SAMPLE_MS。
+// 它让「未连接设备的缓存电量」看起来像在持续上报，已废弃：值不变就不记点。
 const MAX_DEVICES = 12; // 总览最多展开多少台设备（控制 KV 读次数）
 const DEVICE_HIST_CAP = 900; // 单设备下发给前端的最大点数
 
@@ -123,7 +124,10 @@ export async function appendHist(
     const last = arr.length > 0 ? arr[arr.length - 1] : null;
     // 保持时间轴单调，避免补传乱序
     if (last && t < last.t) t = last.t;
-    if (last && last.l === l && last.c === c && t - last.t < GAP_SAMPLE_MS) return;
+    // 值完全没变时不记点：轮询源（如 DeviceInfo.getBatteryList 的缓存值）会不停
+    // 重复同一个数字，按时间补点只会把「缓存值」伪装成「一直在上报」。
+    // 真的变化（含充电状态翻转）才落一个采样点。
+    if (last && last.l === l && last.c === c) return;
     const one: Sample = { t, l, c, v: version };
     if (s) one.s = s;
     arr.push(one);
@@ -395,6 +399,10 @@ function dashHtml(): string {
               font-weight:400}
   .card .mt{margin-top:6px;font-size:.66rem;color:var(--muted);line-height:1.6}
   .card .bar{position:absolute;left:0;bottom:0;height:3px;opacity:.85}
+  .card.stale{border-color:rgba(251,191,36,.32)}
+  .card.stale .lv{opacity:.42}
+  .card.stale .bar{opacity:.25}
+  .warn{color:#fbbf24}
   .legend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-2px 0 8px;font-size:.7rem}
   .legend b{display:inline-flex;align-items:center;gap:5px;cursor:pointer;color:var(--muted);
             font-weight:400;user-select:none;-webkit-user-select:none}
@@ -812,12 +820,23 @@ function renderCards(its){
       delta=(dv>0?'+':'')+dv+'%';
     }
     var lv=cur?cur.l:null;
-    h+='<div class="card">'+
+    var since=cur?cur.t:0,stillH=0,stale=false;
+    if(cur){
+      since=cur.t;
+      for(var q=p.length-1;q>0;q--){
+        if(p[q-1].l!==p[q].l){since=p[q].t;break;}
+        since=p[0].t;
+      }
+      stillH=(Date.now()-since)/3600000;
+      stale=stillH>=2;
+    }
+    h+='<div class="card'+(stale?' stale':'')+'">'+
        '<div class="nm" title="'+esc(it.key)+'">'+esc(it.label)+'</div>'+
        '<div class="lv">'+(lv===null?'--':lv)+'<i>%</i></div>'+
        '<div class="mt">'+
        (cur?('更新 '+fmtT(cur.t)+(isCh(cur)?' · <span style="color:#34d399">充电中</span>':''))
            :'无数据')+
+       (stale?'<br><span class="warn">值 '+fmtDur(stillH*3600000)+' 没变过，可能是未连接时的缓存值</span>':'')+
        '<br>24h 变化 '+delta+' · 采样 '+p.length+' 条'+
        '<br>掉电 '+(st.rate!==null?st.rate.toFixed(2)+' %/h':'—')+
        (st.life!==null?(' · 满电约 '+fmtDur(st.life*3600000)):'')+
