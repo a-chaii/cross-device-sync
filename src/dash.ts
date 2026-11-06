@@ -365,6 +365,7 @@ function dashHtml(): string {
   select{appearance:none;background:rgba(18,24,38,.9);color:var(--txt);font-size:.78rem;
          border:1px solid var(--line);border-radius:9px;padding:7px 10px;outline:none}
   select:focus{border-color:rgba(59,130,246,.6)}
+  select:disabled{opacity:.42;cursor:not-allowed}
   button.ghost{background:rgba(59,130,246,.16);color:#cfe0ff;font-size:.78rem;cursor:pointer;
                border:1px solid rgba(59,130,246,.35);border-radius:9px;padding:7px 12px}
   button.ghost:hover{background:rgba(59,130,246,.26)}
@@ -520,7 +521,8 @@ function cyclePts(p){
   for(i=p.length-1;i>=0;i--){if(p[i].l>=100){idx=i;break;}}
   if(idx<0){for(i=p.length-1;i>=0;i--){if(isCh(p[i])){idx=i;break;}}}
   if(idx<=0)return p;
-  return p.slice(idx);
+  var cut=p.slice(idx);
+  return cut.length>=2?cut:p;
 }
 function viewPts(hist){var p=ptsOf(hist);return S.all?p:cyclePts(p);}
 function sparseOf(p){
@@ -947,6 +949,7 @@ function renderAll(){
   var totShown=0;
   for(i=0;i<series.length;i++)totShown+=series[i].pts.length;
   $('chkAll').checked=S.all;
+  $('selRange').disabled=!!S.all;
   $('chartMeta').textContent=(S.key==='*'?'全部设备':(d.label||S.key))+' · '+
     (S.all?'全部历史':'充满电后')+' '+totShown+' 个采样点'+
     (tot>totShown?'（已隐藏 '+ (tot-totShown) +' 点）':'');
@@ -986,7 +989,7 @@ function load(){
 $('btnReload').onclick=function(){load();};
 $('selKey').onchange=function(){S.key=this.value;S.hidden={};load();};
 $('selRange').onchange=function(){S.range=+this.value;load();};
-$('chkAll').onchange=function(){S.all=this.checked;load();};
+$('chkAll').onchange=function(){S.all=this.checked;$('selRange').disabled=S.all;load();};
 var rt=null;
 window.addEventListener('resize',function(){
   clearTimeout(rt);
