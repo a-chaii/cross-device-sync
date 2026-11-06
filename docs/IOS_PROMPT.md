@@ -407,6 +407,28 @@ GET /dash/stats?key=watch/battery&range=86400000
 - ❌ **自己设计 UI**：自创色板、自创圆角、加 Hero 图/动效、按电量阈值分色、自创状态词。视觉一律照 [`DESIGN.md`](./DESIGN.md)，只允许「等价翻译」。
 - ❌ 在 Widget 上显示错误文本/红色叹号（只能用缓存或空态）。
 
+### 12. 开发状态回写（必须做，和代码一起交付）
+
+协作台 `/dev` 与 `/status` 靠 KV 里的 `status/*` 聚合各端进度。**每个里程碑完成后 PUT 一次 `status/ios`**（这是你唯一的写操作，其余一律只读）：
+
+| 时机 | `phase` 写什么 |
+|---|---|
+| 工程能跑通、能拉到数据 | `M1 骨架跑通` |
+| 三个尺寸都能正确显示 `display.title/subtitle/lines` | `M2 组件显示就绪` |
+| §5.5 六条刷新条款自测通过 | `M3 自动刷新已验收` |
+| §9 验收 12 条全绿 | `交付` |
+
+```bash
+curl -X PUT https://cross-device-sync.beluga233.workers.dev/status/ios \
+  -H "x-sync-token: $SYNC_TOKEN" -H "content-type: application/json" \
+  -d '{"value":{"id":"ios","name":"iOS 客户端","role":"只读 App + 小组件","phase":"M3 自动刷新已验收","doing":"在做大号组件的 24h 曲线","next":["§9 验收 12 条"],"blockers":[],"owner":"iOS-AI","updatedAt":1793969700000}}'
+```
+
+- `next` / `blockers` 都是字符串数组（各最多 6 条）；没卡点就传空数组，不要省略字段。
+- `updatedAt` 是**毫秒**时间戳；不写会退回 KV 记录的 ISO 时间，协作台会显示成「很久没更新」。
+- 只写 `status/ios`，别碰 `status/server` / `status/android` / `status/ipad`。
+- 回写失败不影响开发，但要在最终交付说明里提一句。
+
 ---
 
 ## 附：给用户的落地备注
