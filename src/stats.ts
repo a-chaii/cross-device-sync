@@ -285,6 +285,38 @@ export function statOf(p: Pt[]): Stat {
   return { n: p.length, valid, jumps, reg: reg !== null, drops, sum, charges, span, avgGap, maxGap: gmax, minGap: gmin, rate, life, maxOne };
 }
 
+
+/** 续航口径的长样本速率：跨充电周期只累加「纯放电间隔」。
+ *  刚充满后的两三个小时样本会把续航吹上天（实测 2 小时掉 6% → 外推 49 小时），
+ *  所以续航外推必须用长样本：累加所有「相邻两点都不在充电」的掉电间隔。
+ *  只统计真正掉电（dd > 0）的间隔，充电上升段与尖点一律跳过。 */
+export function wideRate(p: Pt[]): { rate: number | null; spanMs: number; n: number; drop: number } {
+  let sum = 0;
+  let ms = 0;
+  let n = 0;
+  for (let i = 1; i < p.length; i++) {
+    const a = p[i - 1];
+    const b = p[i];
+    if (a.jump || b.jump) continue;
+    if (a.rep || a.inf || b.rep || b.inf) continue;
+    const dd = a.l - b.l;
+    if (dd <= 0) continue;
+    sum += dd;
+    ms += b.t - a.t;
+    n++;
+  }
+  const rate = ms > 0 && sum > 0 ? sum / (ms / 3600000) : null;
+  return { rate, spanMs: ms, n, drop: sum };
+}
+
+/** 把长样本速率盖到视窗统计上：样本 >=6 小时且 >=4 段才采纳，否则原样返回（宁可不猜） */
+export function withWide(st: Stat, full: Pt[]): Stat {
+  const w = wideRate(full);
+  if (w.rate === null || w.spanMs < 6 * 3600000 || w.n < 4) return st;
+  const life = w.rate > 0 ? 100 / w.rate : null;
+  return { ...st, rate: w.rate, life: life !== null && life > 720 ? null : life, reg: true };
+}
+
 /** 充电侧状态机 */
 export function chgStat(p: Pt[]): Chg {
   const segs: Seg[] = [];
@@ -358,7 +390,7 @@ export function fmtDur(ms: number | null | undefined): string {
   if (m < 90) return m + ' 分';
   const h = Math.floor(s / 3600);
   const mm = Math.round((s % 3600) / 60);
-  if (h < 48) return h + ' 时' + (mm ? ' ' + mm + ' 分' : '');
+  if (h < 24) return h + ' 时' + (mm ? ' ' + mm + ' 分' : '');
   const dd = Math.floor(h / 24);
   return dd + ' 天' + (h % 24 ? ' ' + (h % 24) + ' 时' : '');
 }
@@ -409,6 +441,8 @@ export interface DeviceStats {
     lifeHours: number | null;
     lifeText: string;
     lifeApprox: boolean;
+    remainHours: number | null;
+    remainText: string;
     delta24h: number | null;
     delta24hText: string;
     drops: number;
@@ -448,7 +482,7 @@ export interface StatsOpts {
 export function deviceStats(key: string, label: string, hist: Sample[], rec: { updatedAt?: string } | null, now: number, rangeMs: number, opts: StatsOpts = {}): DeviceStats {
   const full = ptsOf(hist);
   const view = opts.all ? full : cyclePts(full);
-  const st = statOf(view);
+  const st = withWide(statOf(view), full);
   const cs = chgStat(full);
   const gapRatio = sparseRatio(full);
   const sparse = gapRatio > 0.55;
@@ -596,6 +630,8 @@ export function deviceStats(key: string, label: string, hist: Sample[], rec: { u
       lifeText: fmtDur(st.life !== null ? st.life * 3600000 : null),
       lifeApprox: st.rate !== null && !st.reg,
       delta24h: delta,
+      remainHours: level !== null && st.rate !== null && st.rate > 0 ? level / st.rate : null,
+      remainText: fmtDur(level !== null && st.rate !== null && st.rate > 0 ? (level / st.rate) * 3600000 : null),
       delta24hText: delta === null ? '—' : (delta > 0 ? '+' : '') + delta + '%',
       drops: st.drops.length,
       sum: st.sum,

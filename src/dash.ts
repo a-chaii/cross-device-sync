@@ -580,7 +580,7 @@ function fmtDur(ms){
   var m=Math.round(s/60);
   if(m<90)return m+' 分';
   var h=Math.floor(s/3600),mm=Math.round((s%3600)/60);
-  if(h<48)return h+' 时'+(mm?' '+mm+' 分':'');
+  if(h<24)return h+' 时'+(mm?' '+mm+' 分':'');
   var dd=Math.floor(h/24);
   return dd+' 天'+(h%24?' '+(h%24)+' 时':'');
 }
@@ -724,6 +724,28 @@ function statOf(p){
   return {n:p.length,valid:valid,jumps:jumps,reg:reg!==null,drops:drops,sum:sum,
           charges:charges,span:span,avgGap:avgGap,maxGap:gmax,minGap:gmin,
           rate:rate,life:life,maxOne:maxOne};
+}
+/** 长样本速率（续航口径）：只累加相邻两点都不在充电的掉电间隔 */
+function wideRate(p){
+  var sum=0,ms=0,n=0,i,a,b,dd;
+  for(i=1;i<p.length;i++){
+    a=p[i-1];b=p[i];
+    if(a.jump||b.jump)continue;
+    if(a.rep||a.inf||b.rep||b.inf)continue;
+    dd=a.l-b.l;
+    if(dd<=0)continue;
+    sum+=dd;ms+=b.t-a.t;n++;
+  }
+  return {rate:(ms>0&&sum>0)?sum/(ms/3600000):null,spanMs:ms,n:n,drop:sum};
+}
+/** 样本 >=6 小时且 >=4 段才用长样本速率覆盖，否则保留视窗结果 */
+function withWide(st,full){
+  var w=wideRate(full),life;
+  if(w.rate===null||w.spanMs<6*3600000||w.n<4)return st;
+  life=w.rate>0?100/w.rate:null;
+  if(life!==null&&life>720)life=null;
+  st.rate=w.rate;st.life=life;st.reg=true;
+  return st;
 }
 function adapt(cv,h){
   var dpr=window.devicePixelRatio||1;
@@ -961,7 +983,7 @@ function renderCards(its){
   }
   var h='',i;
   for(i=0;i<its.length;i++){
-    var it=its[i],p=ptsOf(it.hist),st=statOf(viewPts(it.hist));
+    var it=its[i],p=ptsOf(it.hist),st=withWide(statOf(viewPts(it.hist)),p);
     var cur=p.length?p[p.length-1]:null;
     var c24=null;
     if(cur){
@@ -1113,7 +1135,8 @@ function renderStats(its){
     if(!shownIt(it))continue;
     shown++;
     var p=viewPts(it.hist);
-    var st=statOf(p);
+    var fullP=ptsOf(it.hist);
+    var st=withWide(statOf(p),fullP);
     if(its.length>1){
       h+='<div class="statgrp"><i style="background:'+COLOR[i%COLOR.length]+'"></i>'+
          esc(it.label)+'<span style="opacity:.75;margin-left:auto">'+

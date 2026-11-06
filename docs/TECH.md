@@ -467,7 +467,7 @@ status/ipad       iPad 客户端
 - `test_cross.mjs` 用同一批 13 组 fixtures 双跑，逐项断言 `ptsOf / cyclePts / sparseOf / statOf / chgStat / annotate / olsRate / fmtDur / isCh` 结果完全相等（键序无关的稳定序列化，`null` 与省略键归一）
 - 另断言七种 `status` 的 `display` 文案形态、`curve` 抽稀（≤240 点、保留首末点、时间严格递增）
 
-当前：`pass=182 fail=0`；HTTP 层 `test_stats.mjs` 35 条；页面回归 `test_page_smoke.mjs` 28 条。
+当前：`pass=214 fail=0`；HTTP 层 `test_stats.mjs` 35 条；页面回归 `test_page_smoke.mjs` 28 条。
 
 **接口**：`GET /dash/stats?key=&range=&all=1&points=1`，token 鉴权（`x-sync-token`），CORS 合并方式与 `/dash/hist` 一致（复制响应体再叠 `cors`），`cache-control: no-store`。
 
@@ -490,17 +490,36 @@ status/ipad       iPad 客户端
 
 | 脚本 | 条数 | 管什么 |
 |---|---|---|
-| `tests/test_cross.mjs` | 182 | 前端 JS 与服务端 TS 逐字等价（13 组 fixtures，键序无关比较，过滤 Swift Codable 显式输出的 null） |
+| `tests/test_cross.mjs` | 214 | 前端 JS 与服务端 TS 逐字等价（13 组 fixtures，键序无关比较，过滤 Swift Codable 显式输出的 null） |
 | `tests/test_stats.mjs` | 35 | `/dash/stats` HTTP 契约：鉴权、参数（`range`/`all`/`points`）、返回形状、CORS、排序 |
 | `tests/test_page_smoke.mjs` | 28 | `/dash` 页面回归：HTML 闭合、内联脚本语法合法、关键文案与口径未退化 |
 | `tests/check_docs.mjs` | 43 | `/docs` 页面与仓库 md 必须与新契约一致（C9/C10、第 7/9 节、七值 `status`、`gapRatio`） |
 
 合计 288 条。`tsc` 会报 5 条 Cloudflare 环境类型缺失（`KVNamespace` / `ExecutionContext` 等），是预期噪音，脚本里已用 `|| true` 兜住——JS 照常产出，不影响测试。
 
+### 11.8 续航口径修正（v11.7）
+
+**症状**：`/dash/stats` 与 Web 卡片显示「满电约 2 天 1 时」（49 小时），明显高于体感。
+
+**证据**（2026-11-06 14:45 线上实测）：`level=94`、`rate=2.04 %/h`、视窗只有 6 点 / 跨度 2 小时 47 分——速率来自「11:57 充满后 2.8 小时只掉 6%」这一小段，外推 100% 就是 49 小时。同一份 7 天历史里另有：11-05 13:58→17:48（3.8h 掉 11%）、17:48→22:51（5h 掉 15%）、夜间 9.5h 掉 20%，合计 58% / 21h ≈ 2.8 %/h，真实约 1 天 12 时。
+
+**根因**：`life = 100 / rate` 这个口径没错，错在 `rate` 只取自「上一次充满之后」的短视窗（`cyclePts`）——窗口越短，越容易被刚充满后的轻负载段拉低速率。
+
+**改法**：新增 `wideRate()` / `withWide()`：
+
+- 只累加「相邻两点都不在充电、且确实掉电（`dd > 0`）」的间隔，**跨充电周期累加**，天然跳过充电上升段与尖点；
+- 样本 **≥6 小时且 ≥4 段**才采纳，否则保留视窗结果（宁可不猜）；采纳后 `life` 按 `100/rate` 重算，`>720h` 仍置 `null`；
+- 图表、`drops/sum/span/points` 等描述字段**仍按原视窗语义**，只有速率与续航走长样本。
+
+**附带两处**：`fmtDur` 的「天」阈值从 48h 下调到 24h（`36 时 10 分` → `1 天 12 时`）；新增 `discharge.remainHours/remainText`（`level / rate`，按当前电量还剩多久）——`lifeHours` 是满电口径，两者并列给出。
+
+**验证**：同一份线上历史 49h → **36 时 10 分**（`rate=2.76 %/h`，38 段 / 21h）；交叉测试 182 → **214** 条（新增 `wideRate/withWide` 逐字等价 + 「短窗口不吹牛」4 条断言）。
+
 ## 12. 版本记录
 
 | 版本 | 变更 |
 |---|---|
+| v11.7 | 续航口径修正：新增 `wideRate()` / `withWide()`长样本速率（跨充电周期只累加纯放电间隔，≥6h 且 ≥4 段才采纳），修复「刚充满 2 小时就外推 49 小时」；`fmtDur` 天数阈值 48h → 24h；新增 `discharge.remainHours/remainText`（按当前电量还剩多久）；交叉测试 182 → 214 |
 | v11.6 | 预测统一收到服务端：新增 `src/stats.ts`（九个算法从 `dash.ts` 逐字移植）+ `GET /dash/stats`（token 鉴权，七值 `status`、`display{title,subtitle,lines}` 成品文案、`curve` 等距抽稀）；修三处文案坑（`l>=100` 不再拼「约 —后充满」、`sparse` 用真实 `gapRatio`、`fmtDur` 补空格）；`/docs` 补第 7 节接口与第 9 节小组件自动刷新，硬约束增至 C10；四套回归测试入库 `tests/` 共 288 条 |
 | v11.5 | 充放电双模式：`chgStat()` 充电段统计（已充时长/充入电量/充电速率/预计充满/平均充电速率），`.seg` 右上角切换按钮，掉电分布同步「充入电量」面板，采样日志第 4 列随模式切「距上次掉电 / 已充电多久」，卡片显示「已充 X」；`ptsOf()` 对同一毫秒重复写入去重；充电段允许持平续段 |
 | docs v11.5 | 新增 `docs/ALGO.md`（预测算法唯一实现：输入契约/管线/参数/`chgStat` 伪码/13 组校验用例）与 `docs/DESIGN.md`（视觉 token 表/组件清单/九状态矩阵/文案正反例/Web→SwiftUI 映射）；`IOS_PROMPT.md` §6 换为新算法、§5.3 取消电量阈值分色、§11 新增两条禁止；`IPAD_AGENT_PROMPT.md` §5 整节重写（原 `slope<=0.2`/240h/分钟圆 5 的旧口径废弃）；`/docs` 补 §7 算法与 §8 视觉规范、硬约束增至 C8 |

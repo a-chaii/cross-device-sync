@@ -115,12 +115,14 @@ x-sync-token: <SYNC_TOKEN>
 
 | 字段 | 类型 | 说明 |
 |---|---|---|
-| `rate` | number \| null | `%/h`，最小二乘回归；样本 < 3 或斜率 ≥ 0 → `null` |
+| `rate` | number \| null | `%/h`。**v11.7 起改长样本**：跨充电周期只累加「两端都不在充电」的纯放电间隔，样本 ≥6h 且 ≥4 段才采纳（否则回退视窗回归）。刚充满 2 小时掉 6% 不会再被外推成 49 小时 |
 | `rateText` | string | 格式化，`null` → `—` |
 | `regression` | bool | `true` = 用的回归；`false` = 回退首末差分（UI 加 `~`） |
-| `lifeHours` | number \| null | `100 / rate`；`> 720h` 置 `null`（不显示「剩余 3000 小时」） |
-| `lifeText` | string | 已格式化（如 `1 天 15 时`），`null` → `—` |
+| `lifeHours` | number \| null | **满电口径** `100 / rate`；`> 720h` 置 `null`（不显示「剩余 3000 小时」） |
+| `lifeText` | string | 已格式化（如 `1 天 12 时`），`null` → `—`。**≥24h 用天，不再写「36 时」** |
 | `lifeApprox` | bool | 是否属「近似值」（回退差分或 `rate` 缺失时为 `true`） |
+| `remainHours` | number \| null | **按当前电量** 还能用多久：`level / rate`；v11.7 新增。与 `lifeHours`（满电口径）一起给，客户端按需显示 |
+| `remainText` | string | 已格式化（如 `1 天 9 时`），`null` → `—` |
 | `delta24h` / `delta24hText` | number \| null / string | 相对 24h 前的变化；无 24h 前样本 → `null` / `—` |
 | `drops` | number | 掉电事件数 |
 | `sum` | number | 累计掉电百分点 |

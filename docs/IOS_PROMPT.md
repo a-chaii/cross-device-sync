@@ -297,6 +297,7 @@ GET /dash/stats?key=watch/battery&range=86400000
 | `device.display.title` | string | 直接上屏（标题行） |
 | `device.display.subtitle` | string | 直接上屏（副标题行） |
 | `device.display.lines[]` | string[]（1–5 行） | 中大号的说明行，逐行渲染；**行数随状态变化，不要假设固定 5 行** |
+| `device.discharge.remainText` | string（可选） | 按当前电量还剩多久（如 `1 天 9 时`）；`lifeText` 是满电续航，两者不同，按需展示 |
 | `device.level` / `device.link.ageMs` | number | 小号只显示数字时用；`link.ageMs` 超 2 小时标「数据未更新」 |
 
 其余字段（`discharge.*`、`charging.*`、`charge.*`、`flags.*`、`curve`）都已备好，需要时直接读，**但绝不要拿原始 `hist` 自己再算一遍**。

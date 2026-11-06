@@ -23,7 +23,7 @@ def grab(name):
     sys.exit(1)
 
 
-NAMES = ['isCh', 'annotate', 'olsRate', 'ptsOf', 'cyclePts', 'sparseOf', 'statOf', 'chgStat', 'fmtDur']
+NAMES = ['isCh', 'annotate', 'olsRate', 'ptsOf', 'cyclePts', 'sparseOf', 'statOf', 'chgStat', 'fmtDur', 'wideRate', 'withWide']
 parts = ['var JUMP=8;']
 for n in NAMES:
     parts.append(grab(n))
