@@ -121,8 +121,8 @@ GET /dash/stats?key=watch/battery&range=86400000
    "discharge":{"rate":2.56,"rateText":"2.56 %/h","regression":true,"lifeHours":39.1,"lifeText":"1 天 15 时",
                 "lifeApprox":false,"delta24h":-18,"delta24hText":"-18%","points":42,"validPoints":42,"jumps":0},
    "charge":{"segments":1,"gain":30,"gainText":"+30%","avgRate":36.6,"avgRateText":"36.60 %/h","lastSegment":null},
-   "display":{"title":"掉电 2.56 %/h","subtitle":"满电约 1 天 15 时",
-              "lines":["电量 1 分前","链路 1 分前","24h 变化 -18% · 采样 42 条","掉电 2.56 %/h · 满电约 1 天 15 时"]}}}
+   "display":{"title":"掉电 2.56 %/h","subtitle":"还剩 1 天 15 时",
+              "lines":["电量 1 分前","链路 1 分前","24h 变化 -18% · 采样 42 条","掉电 2.56 %/h · 还剩 1 天 15 时"]}}}
 ```
 
 全部设备返回 `{"key":"*","count":N,"devices":[...]}`，每项结构与上面的 `device` 相同。
@@ -224,7 +224,7 @@ struct StatsResponse: Decodable {
 | `discharging` | 掉电速率 + 满电续航（`display.*` 已含） |
 | `charging` | 「充电中 · 已充 X」+「约 X 后充满」/「已到 100%，可以拔电了」 |
 | `inferredCharging` | 同上，但用「推测充电」措辞（设备不报 `c`） |
-| `full` | 「已充满」+「满电约 X」 |
+| `full` | 「已充满」+「还剩 X」 |
 | `sparse` | 「数据不足」+「采样太稀疏，约 N% 的时间没有数据」 |
 | `insufficient` | 「数据不足」+「有效样本不足，暂不外推」 |
 | `noData` | 「无数据」+「等等客户端上报」 |
@@ -260,7 +260,7 @@ struct StatsResponse: Decodable {
    - **Widget 里一律不显示错误文本**，只用缓存或空态。
 3. `WidgetViews.swift`：按 `widgetFamily` 分支渲染。
    - 小号：最多 3 台，每行「名称 + 电量% + 充电时 `bolt.fill`」+ 底部相对时间。`level == nil` 显示 `--`（不要显示 0）。电量数字**一律用主文字色** `#e6ecf8`，**不做阈值分色**（>50 绿 / <20 红是错的）：颜色只表达事件 —— 充电中 `#34d399`、推测充电 `#5eead4`、掉电 `#f87171`、警示 `#fbbf24`。
-   - 中号：每行「名称 | 电量 | 预计续航」，状态优先级 `充电中 / 推测充电` > `数据不足` > `满电约 X` > `掉电 X %/h` > `—`。充电中显示「充电中 · 已充 49 分」，**不显示续航**；没有「电量稳定」这种状态。
+   - 中号：每行「名称 | 电量 | 预计续航（还剩）」，状态优先级 `充电中 / 推测充电` > `数据不足` > `还剩 X` > `掉电 X %/h` > `—`。充电中显示「充电中 · 已充 49 分」，**不显示续航**；没有「电量稳定」这种状态。
    - 大号：中号内容（最多 4 行）+ 每台一条 24h 曲线。
    - 曲线**用 `Canvas` 或 `Path` 自绘，禁止 Swift Charts**；`l == nil` 断开不连线；只有 1 个点时画圆点不画线；充电段用淡色横带或换色（二选一）；容器高约 70pt，左下标最小值、右上标最大值。
    - iOS 17 必须设置 `.containerBackground(...)`。

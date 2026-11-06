@@ -385,7 +385,7 @@ const DOCS_HTML = `<!doctype html>
              "discharge":{"rate":2.56,"rateText":"2.56 %/h","lifeHours":39.1,
              "lifeText":"1 天 15 时","remainHours":35.2,"remainText":"1 天 11 时","delta24h":-18,..},
              "charge":{"segments":1,"gain":30,"gainText":"+30%",..},
-             "display":{"title":"掉电 2.56 %/h","subtitle":"满电约 1 天 15 时",
+             "display":{"title":"掉电 2.56 %/h","subtitle":"还剩 1 天 15 时",
                         "lines":["电量 1 分前","链路 1 分前",..]}}}</pre>
     <table>
       <tr><th>status</th><th>条件</th><th>display.title</th></tr>
@@ -397,9 +397,9 @@ const DOCS_HTML = `<!doctype html>
       <tr><td><code>insufficient</code></td><td><code>rate</code> 或 <code>life</code> 为 null</td><td>数据不足</td></tr>
       <tr><td><code>discharging</code></td><td>其余</td><td>掉电 2.56 %/h</td></tr>
     </table>
-    <p class="note"><b>副标题</b>：<code>charging/inferredCharging</code> →「约 34 分后充满」，速率不足写「速率样本不足」，已到 100% 写「已到 100%，可以拔电了」（<b>绝不出现「约 —后充满」</b>）；<code>full/discharging</code> →「满电约 1 天 15 时」，无续航写「满电续航待估」；<code>sparse</code> →「采样太稀疏，约 N% 的时间没有数据」（N 取自 <code>flags.gapRatio</code>）。</p>
+    <p class="note"><b>副标题</b>：<code>charging/inferredCharging</code> →「约 34 分后充满」，速率不足写「速率样本不足」，已到 100% 写「已到 100%，可以拔电了」（<b>绝不出现「约 —后充满」</b>）；<code>full/discharging</code> →「还剩 1 天 15 时」，无续航写「续航待估」；<code>sparse</code> →「采样太稀疏，约 N% 的时间没有数据」（N 取自 <code>flags.gapRatio</code>）。</p>
     <p class="note"><b>display 是成品文案</b>：三个字段逐字上屏，不许改写、拼接、加 emoji、自己补单位。<code>lines</code> 为 <b>1–5 行</b>，行数随状态变化（无数据时只有 1 行），别按固定 5 行占位。无值写 <code>—</code>。</p>
-    <p class="note"><b>口径参考（只用于理解数字，不要实现）</b>：剔除孤立尖点（JUMP=8、容差 2）→ <b>续航速率取长样本（v11.7）</b>：跨充电周期只累加「两端都不在充电」的纯放电间隔，样本 ≥6h 且 ≥4 段才采纳，否则退回视窗回归并加 <code>~</code> —— 为的是不让「刚充满 2 小时掉 6%」被外推成 49 小时 → 续航 <code>100/rate</code>（<b>满电口径</b>），按当前电量还剩 <code>level/rate</code>（<code>remainHours</code>）→ 充电段状态机（持平续段、掉电收段、尖点跳过），<code>elapsed=last.t-last.t0</code> <b>绝不外推到 now</b>，<code>l    <p class="note"><b>口径参考（只用于理解数字，不要实现）</b>：剔除孤立尖点（JUMP=8、容差 2）→ 最小二乘回归（样本&lt;3 或斜率&gt;=0 回退首末差分并加 <code>~</code>）→ 续航 100/rate，&gt;720h 不显示 → 充电段状态机（持平续段、掉电收段、尖点跳过），<code>elapsed=last.t-last.t0</code> <b>绝不外推到 now</b>，<code>l&gt;=100</code> 不给 eta。完整字段契约见 <code>docs/API_STATS.md</code>。</p>gt;=100</code> 不给 eta。时长 ≥24h 显示「X 天 Y 时」，不会出现「36 时」。完整字段契约见 <code>docs/API_STATS.md</code>。</p>
+    <p class="note"><b>口径参考（只用于理解数字，不要实现）</b>：剔除孤立尖点（JUMP=8、容差 2）→ <b>续航速率取长样本（v11.7）</b>：跨充电周期只累加「两端都不在充电」的纯放电间隔，样本 ≥20 分钟且 ≥2 段才采纳，否则退回视窗回归并加 <code>~</code> —— 为的是不让「刚充满 2 小时掉 6%」被外推成 49 小时 → 文案统一用「还剩 X」= 当前电量 ÷ 速率（<code>discharge.remainHours</code>），满电续航仍保留在 <code>lifeHours</code> 供参考，<code>&gt;720h</code> 不给 → 充电段状态机（持平续段、掉电收段、尖点跳过），<code>elapsed=last.t-last.t0</code> <b>绝不外推到 now</b>，<code>l&gt;=100</code> 不给 eta。时长 ≥24h 显示「X 天 Y 时」，不会出现「36 时」。完整字段契约见 <code>docs/API_STATS.md</code>。</p>
   </div>
 
   <div class="h2">8 · 视觉规范（原生端只做等价翻译）</div>

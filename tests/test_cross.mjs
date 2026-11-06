@@ -103,11 +103,12 @@ for (const name of Object.keys(fixtures)) {
 // 短窗口不吹牛：刚充满 2.8 小时掉 6% → 短窗外推约 47 小时；长历史里真实 2.8%/h
 const short = [{ t: 0, l: 100 }, { t: 0.6 * H, l: 99 }, { t: H, l: 98 }, { t: 2.8 * H, l: 94 }];
 const longHist = [{ t: -21 * H, l: 100 }, { t: -18 * H, l: 91 }, { t: -12 * H, l: 74 }, { t: -6 * H, l: 57 }, { t: -1.5 * H, l: 52 }].concat(short);
+const tiny = [{ t: 0, l: 100 }, { t: 60000, l: 99 }];
 const wr = S.wideRate(S.ptsOf(longHist));
 chk('wideRate 跨周期累加', wr.n >= 4 && wr.spanMs >= 6 * H, wr.n + ' 段 / ' + wr.spanMs + 'ms');
 chk('宽窗速率比短窗更保守', wr.rate > S.statOf(S.ptsOf(short)).rate, wr.rate + ' vs ' + S.statOf(S.ptsOf(short)).rate);
 chk('withWide 采纳长样本后续航变短', S.withWide(S.statOf(S.ptsOf(short)), S.ptsOf(longHist)).life < S.statOf(S.ptsOf(short)).life);
-chk('样本不足原样返回', (() => { const s = S.statOf(S.ptsOf(short)); return S.withWide(s, S.ptsOf(short)) === s; })());
+chk('样本不足原样返回', (() => { const s = S.statOf(S.ptsOf(tiny)); return S.withWide(s, S.ptsOf(tiny)) === s; })());
 
 chk('稀疏命中', S.sparseOf(S.ptsOf(fixtures.sparse)) === true, S.sparseOf(S.ptsOf(fixtures.sparse)));
 chk('不稀疏不误报', S.sparseOf(S.ptsOf(fixtures.discharge)) === false, S.sparseOf(S.ptsOf(fixtures.discharge)));

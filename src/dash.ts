@@ -741,7 +741,7 @@ function wideRate(p){
 /** 样本 >=6 小时且 >=4 段才用长样本速率覆盖，否则保留视窗结果 */
 function withWide(st,full){
   var w=wideRate(full),life;
-  if(w.rate===null||w.spanMs<6*3600000||w.n<4)return st;
+  if(w.rate===null||w.spanMs<20*60000||w.n<2)return st;
   life=w.rate>0?100/w.rate:null;
   if(life!==null&&life>720)life=null;
   st.rate=w.rate;st.life=life;st.reg=true;
@@ -1040,7 +1040,7 @@ function renderCards(its){
        '<br>24h 变化 '+delta+' · 采样 '+st.valid+' 条'
          +(st.jumps?'<span title="前后都相差 ≥'+JUMP+'% 而前后两点彼此接近，判为孤立尖点：不参与续航预测，曲线里也不画点，原始值仍在上方表格中（标 *）"> <span class="warn">剔噪 '+st.jumps+'</span></span>':'')+
        '<br>掉电 '+(st.rate!==null?st.rate.toFixed(2)+' %/h':'—')+
-       (st.life!==null?(' · 满电约 '+fmtDur(st.life*3600000)+(st.reg?'':' <span class="warn" title="有效样本不足，退回首末差分">~</span>')):'')+
+       (st.life!==null?(' · 还剩 '+fmtDur(lv/st.rate*3600000)+(st.reg?'':' <span class="warn" title="有效样本不足，退回首末差分">~</span>')):'')+
        '</div>'+
        '<div class="bar" style="width:'+Math.max(0,Math.min(100,lv===null?0:lv))+'%;'+
        'background:'+col+'"></div>'+
@@ -1182,6 +1182,7 @@ function renderStats(its){
       h+=row('平均掉电间隔',st.avgGap!==null?fmtDur(st.avgGap):'—');
       h+=row('最长不掉电',st.maxGap!==null?fmtDur(st.maxGap):'—');
       h+=row('掉电速率',st.rate!==null?st.rate.toFixed(2)+' %/h'+(st.reg?'<span class="mod">回归</span>':''):'—');
+      h+=row('还剩续航',(st.rate!==null&&p.length)?('约 '+fmtDur((p[p.length-1].l/st.rate)*3600000)):'—');
       h+=row('满电续航',st.life!==null?'约 '+fmtDur(st.life*3600000):'—');
       h+=row('充电次数',st.charges+'<span class="mod">含推断</span>');
     }

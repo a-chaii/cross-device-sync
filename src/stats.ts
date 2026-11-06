@@ -309,10 +309,10 @@ export function wideRate(p: Pt[]): { rate: number | null; spanMs: number; n: num
   return { rate, spanMs: ms, n, drop: sum };
 }
 
-/** 把长样本速率盖到视窗统计上：样本 >=6 小时且 >=4 段才采纳，否则原样返回（宁可不猜） */
+/** 把长样本速率盖到视窗统计上：样本 >=20 分钟且 >=2 段才采纳，否则原样返回（宁可不猜） */
 export function withWide(st: Stat, full: Pt[]): Stat {
   const w = wideRate(full);
-  if (w.rate === null || w.spanMs < 6 * 3600000 || w.n < 4) return st;
+  if (w.rate === null || w.spanMs < 20 * 60000 || w.n < 2) return st;
   const life = w.rate > 0 ? 100 / w.rate : null;
   return { ...st, rate: w.rate, life: life !== null && life > 720 ? null : life, reg: true };
 }
@@ -560,6 +560,7 @@ export function deviceStats(key: string, label: string, hist: Sample[], rec: { u
   // 这时绝不能拼出「约 —后充满」，否则小组件上会出现一根破折号。
   const chgFull = !!(chgOn && chgOn.l >= 100);
   const etaText = cs.rate !== null && cs.eta !== null ? '约 ' + fmtDur(cs.eta) + '后充满' : '速率样本不足';
+  const remain = level !== null && st.rate !== null && st.rate > 0 ? level / st.rate : null;
 
   const subtitle =
     status === 'charging'
@@ -572,12 +573,12 @@ export function deviceStats(key: string, label: string, hist: Sample[], rec: { u
           : etaText
         : status === 'full'
           ? st.life !== null
-            ? '满电约 ' + fmtDur(st.life * 3600000)
-            : '满电续航待估'
+            ? '还剩 ' + fmtDur(remain * 3600000)
+            : '续航待估'
           : status === 'discharging'
             ? st.life !== null
-              ? '满电约 ' + fmtDur(st.life * 3600000)
-              : '满电续航待估'
+              ? '还剩 ' + fmtDur(remain * 3600000)
+              : '续航待估'
             : status === 'sparse'
               ? '采样太稀疏，约 ' + Math.round(gapRatio * 100) + '% 的时间没有数据'
               : status === 'insufficient'
@@ -591,7 +592,7 @@ export function deviceStats(key: string, label: string, hist: Sample[], rec: { u
     if (linkStopped) lines.push(fmtDur(linkAge) + ' 没有任何上报，进程可能被冻结');
     else if (levelStale) lines.push('链路正常 · 电量 ' + fmtDur(stillMs) + ' 未变');
     lines.push('24h 变化 ' + (delta === null ? '—' : (delta > 0 ? '+' : '') + delta + '%') + ' · 采样 ' + st.valid + ' 条' + (st.jumps ? ' · 剔噪 ' + st.jumps : ''));
-    lines.push('掉电 ' + rateText(st.rate) + (st.life !== null ? ' · 满电约 ' + fmtDur(st.life * 3600000) + (st.reg ? '' : ' ~') : ''));
+    lines.push('掉电 ' + rateText(st.rate) + (st.life !== null ? ' · 还剩 ' + fmtDur(remain * 3600000) + (st.reg ? '' : ' ~') : ''));
   } else {
     lines.push('无数据');
   }
@@ -630,8 +631,8 @@ export function deviceStats(key: string, label: string, hist: Sample[], rec: { u
       lifeText: fmtDur(st.life !== null ? st.life * 3600000 : null),
       lifeApprox: st.rate !== null && !st.reg,
       delta24h: delta,
-      remainHours: level !== null && st.rate !== null && st.rate > 0 ? level / st.rate : null,
-      remainText: fmtDur(level !== null && st.rate !== null && st.rate > 0 ? (level / st.rate) * 3600000 : null),
+      remainHours: remain,
+      remainText: fmtDur(remain !== null ? remain * 3600000 : null),
       delta24hText: delta === null ? '—' : (delta > 0 ? '+' : '') + delta + '%',
       drops: st.drops.length,
       sum: st.sum,

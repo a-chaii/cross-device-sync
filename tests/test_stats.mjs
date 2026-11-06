@@ -69,7 +69,7 @@ chk('retentionMs = 7 天', r.body.retentionMs === 7 * 24 * H, r.body.retentionMs
 chk('level = 62', r.body.device.level === 62, r.body.device.level);
 chk('status = discharging', r.body.device.status === 'discharging', r.body.device.status);
 chk('display.title 是掉电', /^掉电 /.test(r.body.device.display.title), r.body.device.display.title);
-chk('display.subtitle 满电约', /^满电约 |^满电续航待估/.test(r.body.device.display.subtitle), r.body.device.display.subtitle);
+chk('display.subtitle 还剩', /^还剩 |^续航待估/.test(r.body.device.display.subtitle), r.body.device.display.subtitle);
 chk('display.lines 1~5 行', r.body.device.display.lines.length >= 1 && r.body.device.display.lines.length <= 5, r.body.device.display.lines.length);
 chk('discharge.rate 正数', r.body.device.discharge.rate > 0, r.body.device.discharge.rate);
 chk('无 curve（未传 points）', r.body.device.curve === undefined, typeof r.body.device.curve);

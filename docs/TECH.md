@@ -508,10 +508,10 @@ status/ipad       iPad 客户端
 **改法**：新增 `wideRate()` / `withWide()`：
 
 - 只累加「相邻两点都不在充电、且确实掉电（`dd > 0`）」的间隔，**跨充电周期累加**，天然跳过充电上升段与尖点；
-- 样本 **≥6 小时且 ≥4 段**才采纳，否则保留视窗结果（宁可不猜）；采纳后 `life` 按 `100/rate` 重算，`>720h` 仍置 `null`；
+- 样本 **≥20 分钟且 ≥2 段**才采纳，否则保留视窗结果（宁可不猜）；采纳后 `life` 按 `100/rate` 重算，`>720h` 仍置 `null`；
 - 图表、`drops/sum/span/points` 等描述字段**仍按原视窗语义**，只有速率与续航走长样本。
 
-**附带两处**：`fmtDur` 的「天」阈值从 48h 下调到 24h（`36 时 10 分` → `1 天 12 时`）；新增 `discharge.remainHours/remainText`（`level / rate`，按当前电量还剩多久）——`lifeHours` 是满电口径，两者并列给出。
+**附带三处**：`fmtDur` 的「天」阈值从 48h 下调到 24h（`36 时 10 分` → `1 天 12 时`）；新增 `discharge.remainHours/remainText`（`level / rate`，按当前电量还剩多久）——`lifeHours` 是满电口径，两者并列给出；**display 文案与副标题统一改用「还剩 X」**（`level / rate`）。
 
 **验证**：同一份线上历史 49h → **36 时 10 分**（`rate=2.76 %/h`，38 段 / 21h）；交叉测试 182 → **214** 条（新增 `wideRate/withWide` 逐字等价 + 「短窗口不吹牛」4 条断言）。
 
@@ -519,7 +519,7 @@ status/ipad       iPad 客户端
 
 | 版本 | 变更 |
 |---|---|
-| v11.7 | 续航口径修正：新增 `wideRate()` / `withWide()`长样本速率（跨充电周期只累加纯放电间隔，≥6h 且 ≥4 段才采纳），修复「刚充满 2 小时就外推 49 小时」；`fmtDur` 天数阈值 48h → 24h；新增 `discharge.remainHours/remainText`（按当前电量还剩多久）；交叉测试 182 → 214 |
+| v11.7 | 续航口径修正：新增 `wideRate()` / `withWide()`长样本速率（跨充电周期只累加纯放电间隔，≥20 分钟且 ≥2 段才采纳），修复「刚充满 2 小时就外推 49 小时」；`fmtDur` 天数阈值 48h → 24h；新增 `discharge.remainHours/remainText`（按当前电量还剩多久），display 文案改「还剩 X」；交叉测试 182 → 214 |
 | v11.6 | 预测统一收到服务端：新增 `src/stats.ts`（九个算法从 `dash.ts` 逐字移植）+ `GET /dash/stats`（token 鉴权，七值 `status`、`display{title,subtitle,lines}` 成品文案、`curve` 等距抽稀）；修三处文案坑（`l>=100` 不再拼「约 —后充满」、`sparse` 用真实 `gapRatio`、`fmtDur` 补空格）；`/docs` 补第 7 节接口与第 9 节小组件自动刷新，硬约束增至 C10；四套回归测试入库 `tests/` 共 288 条 |
 | v11.5 | 充放电双模式：`chgStat()` 充电段统计（已充时长/充入电量/充电速率/预计充满/平均充电速率），`.seg` 右上角切换按钮，掉电分布同步「充入电量」面板，采样日志第 4 列随模式切「距上次掉电 / 已充电多久」，卡片显示「已充 X」；`ptsOf()` 对同一毫秒重复写入去重；充电段允许持平续段 |
 | docs v11.5 | 新增 `docs/ALGO.md`（预测算法唯一实现：输入契约/管线/参数/`chgStat` 伪码/13 组校验用例）与 `docs/DESIGN.md`（视觉 token 表/组件清单/九状态矩阵/文案正反例/Web→SwiftUI 映射）；`IOS_PROMPT.md` §6 换为新算法、§5.3 取消电量阈值分色、§11 新增两条禁止；`IPAD_AGENT_PROMPT.md` §5 整节重写（原 `slope<=0.2`/240h/分钟圆 5 的旧口径废弃）；`/docs` 补 §7 算法与 §8 视觉规范、硬约束增至 C8 |
