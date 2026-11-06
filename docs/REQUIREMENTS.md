@@ -109,10 +109,13 @@
 | `.systemMedium` | 每台设备的**预计续航**（按放电速率外推） | 充电中显示「充电中 · 已充 X」；`c` 缺失但电量在涨显示「推测充电」；样本不足/稀疏/>720h 显示「数据不足」；**没有「电量稳定」这个状态** |
 | `.systemLarge` | 中号内容 + **最近 24 小时曲线** | 曲线用 `Canvas`/`Path` 自绘，`l==nil` 断开，单点画点不画线 |
 
-- FR-7.1 刷新：`Timeline` 策略 `.after(+15min)`；App 前台刷新成功后 `reloadAllTimelines()`。
-- FR-7.2 **离线必须可用**：网络失败时静默使用缓存，组件不得显示错误文本。
-- FR-7.3 预计续航必须按固定公式（唯一真源 `ALGO.md`，摘要见 `IOS_PROMPT.md` §6 / `IPAD_AGENT_PROMPT.md` §5），**样本不足时宁可不给结论**；不许各端自行实现。
-- FR-7.4 预计续航是粗估，UI 与 README 均需注明「线性外推，仅供参考」。
+- FR-7.1 **必须自动刷新（验收硬条款）**：`getTimeline` 返回 `Timeline(entries:[entry], policy: .after(now + 15*60))`；**每次** `getTimeline` 都要尝试联网（10 分钟缓存节流 ≠ 只刷一次）；App 前台刷新成功后调 `WidgetCenter.shared.reloadAllTimelines()`。组件放置 **≥1 小时、不打开 App** 仍必须自动更新。只给 `.never` / 只在首次联网 = 验收不通过。
+- FR-7.2 **离线必须可用**：网络失败时静默使用缓存，组件不得显示错误文本/红叹号。
+- FR-7.3 **刷新预算是有限的**：系统每天只给组件几十次刷新，「15 分钟」是请求不是保证。UI/README 文案**不许**出现「实时」「每分钟同步」「秒级刷新」；README 必须写明这条限制。
+- FR-7.4 **预测口径已服务端化（v11.6）**：续航/速率/充电段/预计充满**唯一真源是 `GET /dash/stats`**（实现在 `src/stats.ts`，契约见 `docs/API_STATS.md` 与线上 `/docs`）。客户端**零算法**，只解码 `device.display.*` 并原样渲染；出现 Swift 版 `DurationEstimator` / 回归 / 充电段状态机 = 返工。
+- FR-7.5 `display.title` / `display.subtitle` / `display.lines` 是**成品文案**，禁止改写、拼接、加 emoji；`lines` 为 1–5 行，不保证行数固定。
+- FR-7.6 **样本不足时宁可不给结论**：`status` 为 `sparse` / `insufficient` / `noData` 时显示「数据不足 / 无数据」，不得外推。
+- FR-7.7 预计续航是粗估，UI 与 README 均需注明「按最近放电速率线性外推，仅供参考」。
 
 ### 4.8 展示要求
 

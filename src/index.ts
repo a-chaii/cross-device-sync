@@ -13,6 +13,8 @@
  *   POST   /dash             -> 提交看板密码
  *   GET    /dash/data        -> 看板数据 JSON（需看板 cookie）
  *   GET    /dash/hist?key=   -> 单设备历史 JSON（需 x-sync-token，供 iOS/原生端）
+ *   GET    /dash/stats?key=  -> 预测统计 JSON（需 x-sync-token）：速率/续航/充电段/文案已算好
+ *                               不带 key 返回全部设备；?points=1 附带曲线点；?all=1 用全部采样
  *   GET    /:key             -> 读取单条记录
  *   HEAD   /:key             -> 只返回版本信息（响应头 X-Sync-Version / X-Sync-Updated）
  *   PUT    /:key             -> 写入，body: { "value": <any JSON> }
@@ -36,6 +38,7 @@ import {
   page as dashPage,
   HIST_TTL_MS,
 } from './dash';
+import { statsOf } from './stats';
 
 export interface Env {
   SYNC_KV: KVNamespace;
@@ -183,6 +186,31 @@ export default {
       const histHeaders: Record<string, string> = {};
       histRes.headers.forEach((v, k) => { histHeaders[k] = v; });
       return new Response(histRes.body, { status: histRes.status, headers: { ...histHeaders, ...cors } });
+    }
+
+    // /dash/stats：预测统计（token 鉴权，给 iOS / 原生端 / 小组件）
+    // 算法在服务端算完，连「该显示什么文字」都给出，客户端不需要任何预测逻辑。
+    if (path === '/dash/stats' && method === 'GET') {
+      const rawSk = url.searchParams.get('key');
+      let sk = '';
+      if (rawSk) {
+        const nk = normalizeKey(rawSk);
+        if (!nk) return json({ error: 'invalid_key', hint: '键仅允许字母、数字、. _ : - /，长度 1-256' }, 400, cors);
+        sk = nk;
+      }
+      if (sk.charAt(0) === '@') {
+        return json({ error: 'invalid_key', hint: 'key 不能是内部键（@hist:...）' }, 400, cors);
+      }
+      const sr = Number(url.searchParams.get('range') || '0');
+      const srange = Number.isFinite(sr) && sr > 0 ? Math.min(sr, HIST_TTL_MS) : 0;
+      const opts = {
+        all: url.searchParams.get('all') === '1' || url.searchParams.get('all') === 'true',
+        points: url.searchParams.get('points') === '1' || url.searchParams.get('points') === 'true',
+      };
+      const stRes = await statsOf(env, sk, srange, opts);
+      const stHeaders: Record<string, string> = {};
+      stRes.headers.forEach((v, k) => { stHeaders[k] = v; });
+      return new Response(stRes.body, { status: stRes.status, headers: { ...stHeaders, ...cors } });
     }
     // /list
     if (path === '/list' && method === 'GET') {

@@ -163,7 +163,7 @@ export async function appendHist(
 }
 
 /** 键名是否代表一台设备的电量记录 */
-function isDeviceKey(name: string): boolean {
+export function isDeviceKey(name: string): boolean {
   if (name === 'watch/battery') return true;
   if (/^dev\/[0-9a-f]{4,32}$/i.test(name)) return true;
   // 兼容未来可能出现的 buds/battery、band/battery 之类
@@ -171,7 +171,7 @@ function isDeviceKey(name: string): boolean {
 }
 
 /** 设备展示名：优先上报里的 name，否则按键名推 */
-function labelOf(key: string, value: unknown): string {
+export function labelOf(key: string, value: unknown): string {
   const n = pickStr(value, 'name');
   if (n) return n;
   if (key === 'watch/battery') return '手表';
@@ -195,7 +195,7 @@ function jsonBody(obj: unknown): Response {
   });
 }
 
-async function loadHist(env: DashEnv, key: string): Promise<Sample[]> {
+export async function loadHist(env: DashEnv, key: string): Promise<Sample[]> {
   const raw = (await env.SYNC_KV.get(histKey(key), 'json')) as Sample[] | null;
   return Array.isArray(raw) ? raw : [];
 }
@@ -580,9 +580,9 @@ function fmtDur(ms){
   var m=Math.round(s/60);
   if(m<90)return m+' 分';
   var h=Math.floor(s/3600),mm=Math.round((s%3600)/60);
-  if(h<48)return h+' 时'+(mm?mm+' 分':'');
+  if(h<48)return h+' 时'+(mm?' '+mm+' 分':'');
   var dd=Math.floor(h/24);
-  return dd+' 天'+(h%24?h%24+' 时':'');
+  return dd+' 天'+(h%24?' '+(h%24)+' 时':'');
 }
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){
   return c==='&'?'&amp;':c==='<'?'&lt;':c==='>'?'&gt;':'&'+'quot;';});}

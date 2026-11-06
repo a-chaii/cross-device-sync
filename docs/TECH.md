@@ -457,6 +457,33 @@ status/ipad       iPad 客户端
 
 ---
 
+### 11.6 预测统计服务端口径化（v11.6）
+
+**动机**：v11.5 是把算法写成文档让客户端照着抄。结果是两端必然分叉（Web 说 39 小时、客户端说 42 小时），且每次调阈值都要通知两边。v11.6 把整条链路搬到服务端：`src/stats.ts` 是唯一实现，客户端只解码。
+
+**为什么是逐字移植而不是重写**：`src/dash.ts` 的浏览器端 JS（`isCh/annotate/olsRate/ptsOf/cyclePts/sparseOf/statOf/chgStat/fmtDur`）已经在线上跑了几个月，任何「顺便优化」都会让 Web 卡片与 API 数字不一致。所以 `stats.ts` 是这九个函数的逐行等价移植，并用**交叉一致性测试**把两份实现钉在一起：
+
+- `extract_front.py` 从 `src/dash.ts` 按大括号配对抽出浏览器版函数 → `front.js`
+- `test_cross.mjs` 用同一批 13 组 fixtures 双跑，逐项断言 `ptsOf / cyclePts / sparseOf / statOf / chgStat / annotate / olsRate / fmtDur / isCh` 结果完全相等（键序无关的稳定序列化，`null` 与省略键归一）
+- 另断言七种 `status` 的 `display` 文案形态、`curve` 抽稀（≤240 点、保留首末点、时间严格递增）
+
+当前：`pass=182 fail=0`；HTTP 层 `test_stats.mjs` 35 条；页面回归 `test_page_smoke.mjs` 28 条。
+
+**接口**：`GET /dash/stats?key=&range=&all=1&points=1`，token 鉴权（`x-sync-token`），CORS 合并方式与 `/dash/hist` 一致（复制响应体再叠 `cors`），`cache-control: no-store`。
+
+**返回结构要点**（完整见 `docs/API_STATS.md`）：
+- 单设备 `{ key, label, now, retentionMs, rangeMs, device }`；不带 key/`*` 返回 `{ key:'*', count, devices:[...] }`，按 `link.at` 倒序。
+- `device.status` 七值：`discharging / charging / inferredCharging / full / sparse / insufficient / noData`；叠加 `flags.linkStopped` / `flags.levelStale` / `flags.sparse` / `flags.gapRatio`。
+- `device.display`：`title` / `subtitle` / `lines[1..5]`，**文案在服务端定死**。
+- `?points=1` 才出 `curve: [[t,l]]`，上限 240 点，等距抽稀且保留首末点，尖点不入曲线。
+
+**三条必须在服务端修掉的文案坑（本轮实测发现）**：
+1. `l >= 100` 时 `eta` 为 `null`，旧逻辑会拼出「约 —后充满」→ 改为「已到 100%，可以拔电了」。
+2. 稀疏文案原本硬编码「约 55%」，与阈值脱钩 → 新增 `sparseRatio()` 输出真实占比（`flags.gapRatio`），文案改为「约 N% 的时间没有数据」。
+3. `fmtDur` 在「X 时 Y 分」「X 天 Y 时」之间少了空格（`6时25分`）→ 两端同步改成 `6时25分`，由交叉测试锁死。
+
+**客户端侧影响**：`IOS_PROMPT.md` §6 与 `IPAD_AGENT_PROMPT.md` §5 已从「移植算法 + 跑 13 组用例」改为「调接口 + 原样渲染」；`ALGO.md` 降级为口径解释。小组件自动刷新升级为验收硬条款（`policy: .after` + 每次联网 + `reloadAllTimelines()` + 放置 1 小时仍能自更新）。
+
 ## 12. 版本记录
 
 | 版本 | 变更 |

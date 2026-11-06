@@ -1,12 +1,12 @@
 # iPad Agent 提示词（WatchSync 只读客户端 + Widget）
 
-> 整段复制给 iPad 端 agent 框架使用。接口契约自包含；但**算法与视觉的真源在 `docs/ALGO.md` 与 `docs/DESIGN.md`**，本文 §5 只是必须照做的摘要。
+> 整段复制给 iPad 端 agent 框架使用。接口契约自包含；**算法已经没有「客户端版本」了 —— 预测全部由服务端 `GET /dash/stats` 返回，视觉规范的真源是 `docs/DESIGN.md`**。
 > 与 `docs/IOS_PROMPT.md` 的区别：这份**假设你在 iPad 上执行**（Swift Playgrounds / a-Shell），所以明确了「什么现在能做、什么必须回 Mac 做」，防止 agent 谎报构建成功。
 >
-> **v11.5 重要变更（先读这条，否则整段返工）**
-> 1. §5 的旧算法（过滤充电点 → 首末差分 → `slope <= 0.2` 视为稳定 → 240h 上限 → 分钟圆到 5 的倍数）**已全部废弃**。它会被 `90↔100` 的锯齿骗到 3.47 %/h（满电 28.8 小时），而真实放电只有 1.2 %/h。现行算法见 §5，唯一真源是 Web 看板的 `chgStat`/`statOf`，完整口径与伪码在 `docs/ALGO.md`。
-> 2. **不要自己设计 UI**。配色、字号、圆角、层级、状态词、文案格式一律照 `docs/DESIGN.md`，你只做「等价翻译」。尤其：**不许按电量阈值分色**、不许自创「电量稳定」这类状态词。
-> 3. 若你已经开始按旧算法写 `DurationEstimator`，**停下来，按 §5 重写**，不要「保留原结构再打补丁」。
+> **v11.6 重要变更（先读这三条，否则整段返工）**
+> 1. **不要写任何预测/续航算法**。服务端 `GET /dash/stats` 返回算好的数值和成品文案（`display.title` / `display.subtitle` / `display.lines`），你只解码显示。§5 已整体重写；`docs/ALGO.md` 只剩「解释数字为什么这么算」的用途。
+> 2. **小组件必须自动刷新**：`Timeline(policy: .after(+15 分钟))` + 每次 `getTimeline` 都联网 + App 刷新后 `WidgetCenter.shared.reloadAllTimelines()`。这是**验收硬条款**（§6 + §9 第 6/7 条），只用 `.never` 或只刷一次 = 返工。
+> 3. **不要自己设计 UI**。配色、字号、圆角、层级、状态词、文案格式一律照 `docs/DESIGN.md`。尤其：**不许按电量阈值分色**、不许自创「电量稳定」这类状态词、不许改写服务端给的 `display.*` 文案。
 
 ---
 
@@ -33,7 +33,7 @@
 **阶段 A（iPad 上必须做出来并跑通）**
 1. 数据层：`Decodable` 模型 + `APIClient`（URLSession，async/await）。
 2. 纯逻辑层：`BatterySnapshot`、`DurationEstimator`（续航估算，见 §5）、`Formatters`。
-3. 自测：`AlgorithmTests.swift`，用固定样本断言 §5 的**全部分支**，实际运行并贴输出。
+3. 自测：`DecodeTests.swift`，用固定 fixture 断言 `/dash/stats` 能解码并原样渲染 `display.*`（**不再有算法测试**），实际运行并贴输出。
 4. UI：设备列表 / 详情 / 设置 三个 SwiftUI 界面，可预览。
 
 **阶段 B（只产出源码，标注待 Xcode 构建）**
@@ -97,6 +97,41 @@ token 从 `Config.swift` 读，**不要硬编码进任何源码文件**，也不
 4. key 不存在返回 `200` + `hist: []`，**不是 404** → 用空态区分「无数据」和「请求失败」。
 5. `label` 直接用，不要自己按 key 拼。
 
+#### 2.5 `GET /dash/stats?key=&range=&all=1&points=1`（预测统计，v11.6 新增，**唯一该用的预测接口**）
+
+```
+GET /dash/stats?key=watch/battery            # 单设备
+GET /dash/stats                              # 全部设备（按链路时间倒序）
+GET /dash/stats?key=watch/battery&all=1      # 视窗=全部采样（默认「上一次充满之后」）
+GET /dash/stats?key=watch/battery&points=1   # 附带 curve: [[t,l],...]（≤240 点，大号组件用）
+GET /dash/stats?key=watch/battery&range=86400000
+```
+
+单设备返回（节选）：
+
+```json
+{"key":"watch/battery","label":"手表","now":1762408800000,"retentionMs":604800000,"rangeMs":0,
+ "device":{
+   "level":64,"levelAt":1762408740000,
+   "link":{"at":1762408740000,"ageMs":60000,"state":"ok"},
+   "status":"discharging",
+   "flags":{"linkStopped":false,"levelStale":false,"sparse":false,"gapRatio":0,"insufficient":false},
+   "charging":{"on":false,"inferred":false,"elapsedMs":0,"elapsedText":"0 秒","gain":0,"from":null,"to":null,
+               "rate":null,"rateText":"—","etaMs":null,"etaText":"—","full":false},
+   "discharge":{"rate":2.56,"rateText":"2.56 %/h","regression":true,"lifeHours":39.1,"lifeText":"1 天 15 时",
+                "lifeApprox":false,"delta24h":-18,"delta24hText":"-18%","points":42,"validPoints":42,"jumps":0},
+   "charge":{"segments":1,"gain":30,"gainText":"+30%","avgRate":36.6,"avgRateText":"36.60 %/h","lastSegment":null},
+   "display":{"title":"掉电 2.56 %/h","subtitle":"满电约 1 天 15 时",
+              "lines":["电量 1 分前","链路 1 分前","24h 变化 -18% · 采样 42 条","掉电 2.56 %/h · 满电约 1 天 15 时"]}}}
+```
+
+全部设备返回 `{"key":"*","count":N,"devices":[...]}`，每项结构与上面的 `device` 相同。
+
+- `status` 七值：`discharging` / `charging` / `inferredCharging` / `full` / `sparse` / `insufficient` / `noData`。
+- `display.lines` 是 **1–5 行**，行数随状态变化，**不要假设固定 5 行**。
+- `display.*` 是**成品文案**，逐字上屏，不许改写、不许拼接、不许加 emoji。
+- 完整字段契约见线上 `/docs` 的「预测统计接口」一节（唯一真源）。
+
 ### 3. 模型定义（照这个写，别改名）
 
 ```swift
@@ -120,6 +155,49 @@ struct Device: Identifiable {
     let key: String; let label: String
     var level: Int?; var charging: Bool?; var updatedAt: Date?
 }
+
+// ---- 预测统计（v11.6）：只需解码，不要在这里加任何计算属性 ----
+struct StatsDisplay: Decodable {
+    let title: String
+    let subtitle: String
+    let lines: [String]        // 1–5 行，别假设固定 5
+}
+struct StatsLink: Decodable { let at: Int64?; let ageMs: Int64?; let state: String }
+struct StatsCharging: Decodable {
+    let on: Bool; let inferred: Bool
+    let elapsedMs: Int64; let elapsedText: String
+    let gain: Int; let from: Int?; let to: Int?
+    let rate: Double?; let rateText: String
+    let etaMs: Int64?; let etaText: String
+    let full: Bool
+}
+struct StatsDischarge: Decodable {
+    let rate: Double?; let rateText: String; let regression: Bool
+    let lifeHours: Double?; let lifeText: String; let lifeApprox: Bool
+    let delta24h: Int?; let delta24hText: String
+    let points: Int; let validPoints: Int; let jumps: Int
+}
+struct StatsFlags: Decodable {
+    let linkStopped: Bool; let levelStale: Bool; let sparse: Bool
+    let gapRatio: Double; let insufficient: Bool
+}
+struct DeviceStats: Decodable {
+    let key: String; let label: String
+    let level: Int?; let levelAt: Int64?
+    let link: StatsLink
+    let status: String          // 七值枚举，先按 String 解，UI 用 switch
+    let flags: StatsFlags
+    let charging: StatsCharging
+    let discharge: StatsDischarge
+    let display: StatsDisplay
+    let curve: [[Int64]]?       // 只有 points=1 才有；[t, l]
+}
+struct StatsResponse: Decodable {
+    let key: String; let label: String?; let now: Int64
+    let retentionMs: Int; let rangeMs: Int
+    let device: DeviceStats?    // 单设备
+    let count: Int?; let devices: [DeviceStats]?   // 全部设备
+}
 ```
 解码注意：`updatedAt` 是 ISO8601 带毫秒（`2026-11-06T03:59:00.000Z`），用 `ISO8601DateFormatter` 配 `.withFractionalSeconds`；解析失败**不要抛错崩界面**，置 nil。
 
@@ -130,61 +208,39 @@ struct Device: Identifiable {
 - 前台手动刷新最小间隔 60 秒（防止把免费配额打光）。
 - 错误映射：`401` 提示「token 无效」**不重试**；`404` 视为无数据；`400 invalid_key` 不重试；`429`/`5xx` 指数退避最多 3 次（2s/8s/30s）；网络失败展示缓存 + 「离线」标记。
 
-### 5. 续航估算 / 充电统计（唯一实现，**禁止自研**）
+### 5. 预测数据：**只调接口，不写算法**（v11.6）
 
-> 完整口径、阈值、伪码、13 组校验用例见 `docs/ALGO.md`。Web 看板已经实现了这一套，你的输出必须与它**逐位一致**：同样一份 `hist`，Web 说 39 小时，你就得说 39 小时。
+> 这一节以前叫「续航估算 / 充电统计（唯一实现）」，要求你移植 13 组用例。**现在全部作废。**
+> 预测已经由服务端 `GET /dash/stats` 算完，还顺手把要显示的字也拼好了。
 
-**旧口径（已废弃，不许再用）**：丢 `c==1` → 首末差分 → `slope <= 0.2` 判「电量稳定」 → 240h 上限 → 分钟圆到 5 的倍数。
-失效证据：耳机 `90↔100` 锯齿下它算出 3.47 %/h（满电 28.8h），真实约 1.2 %/h；而且「电量稳定」这个状态在 Web 端**根本不存在**，不要自创。
+#### 5.1 你只需要做三件事
 
-**处理管线（顺序不能变）**
+1. `APIClient.stats(key:points:all:range:)` → 解码成 `StatsResponse`。
+2. UI 把 `device.display.title` / `subtitle` / `lines` **原样渲染**。
+3. `device.status` 只用来选样式（颜色/图标），**不用来算任何数**。
 
-1. **清洗**：丢 `l == nil`；**同一毫秒只保留先到的那条**（模块会在同一 tick 连写 79 和 75，不去重会凭空多出一次「掉电」）。
-2. **打标**：
-   - `rep = (c == 1)` —— 设备自称充电，**不可单独作依据**（手表恒为 0）
-   - `jump = |b-a| >= 8 && |b-c| >= 8 && |a-c| <= 2` —— 孤立尖点，不参与统计，曲线也不画
-   - `inf = !rep && l - prevL >= 1` —— 相对上一个**非尖点**上涨
-3. **放电速率**：最小二乘回归，样本只取「两端都不在充电」的相邻点。样本 `< 3` 或斜率 `>= 0` → 回退首末差分 `sum/span`，并给结果打 `~`。
-4. **续航** = `100 / rate`；`> 720h` 不给（**不是 240h**）。
-5. **充电侧状态机**（`已充多久 / 充电速率 / 预计充满`）：起段 = 上报充电或开始上涨；**持平必须续段**；**只有掉电才收段**；尖点跳过。
-   - `elapsed = last.t - last.t0`，**绝不外推到 now**（息屏冻结会把「已充 5 小时」吹成 8 小时）
-   - `rate = curGain / elapsed`，需 `elapsed > 180000ms` 且 `curGain > 0`，否则 `nil`（不许显示 `0.00 %/h`）
-   - `eta = (100 - lastL) / rate`；`lastL >= 100` 时为 `nil`，UI 写「已充满」
-6. **稀疏设备**（跨度 >= 2h 且间隔 > 1.5h 的空档占比 > 55%）→ 「数据不足」，不给续航。
-7. **格式化**：时长按 `fmtDur` 原样（90s 内「刚刚」、90min 内「X 分」、48h 内「X 时 Y 分」、以上「X 天 Y 时」）。**不许把分钟圆到 5 的倍数**（那是旧口径）。
+| status | 界面表现 |
+|---|---|
+| `discharging` | 掉电速率 + 满电续航（`display.*` 已含） |
+| `charging` | 「充电中 · 已充 X」+「约 X 后充满」/「已到 100%，可以拔电了」 |
+| `inferredCharging` | 同上，但用「推测充电」措辞（设备不报 `c`） |
+| `full` | 「已充满」+「满电约 X」 |
+| `sparse` | 「数据不足」+「采样太稀疏，约 N% 的时间没有数据」 |
+| `insufficient` | 「数据不足」+「有效样本不足，暂不外推」 |
+| `noData` | 「无数据」+「等等客户端上报」 |
 
-枚举建议（去掉 `stable` / `over10Days`，它们已不存在）：
-```swift
-enum DurationEstimate: Equatable {
-    case charging(elapsedSec: Int, rate: Double?, eta: Double?, isInferred: Bool)
-    case insufficient          // 样本不足 / 稀疏 / 续航 > 720h
-    case hours(Double, isStale: Bool)
-    case unknown               // 完全没有 l 数据
-}
-```
-> `推测充电`（`c` 缺失但电量在涨）用 `isInferred = true` 区分，Web 端会把它染成青色 `#5eead4` 并写「推测充电」四个字，**不许直接说「充电中」**。
+#### 5.2 明确不要写的东西
 
-**移植完必须逐条跑过这 13 组用例**（等间隔 1h，`H = 3600000`），与服务端 `docs/ALGO.md` §9 完全同源：
+- ❌ `DurationEstimator`（这个类型现在不存在了）、`olsRate`、`statOf`、`chgStat`、`sparseOf` 的 Swift 版。
+- ❌ 清洗/打标/回归/充电段状态机，任何一行都别写。
+- ❌ C1–C8 / D1 / S1–S4 那 13 组用例（它们归服务端自测，客户端没有算法可测）。
+- ❌ 自己算 24h 变化、自己判稀疏、自己判尖点、自己拼时长文案。
 
-| # | 输入 | 期望 |
-|---|---|---|
-| C1 | `40, 45, 50, 55` | 充电段 1 个，`l0=45`，`curGain=10`，`elapsed=1H`，`rate=10 %/h`，`eta=4.5H` |
-| C2 | `40, 45, 50, 48` | 段 1 个已闭合，`gain=5`，`eta=nil`，`avgRate=5 %/h` |
-| C3 | `60, 58, 55` | 无充电段，`rate=nil` |
-| C4 | `90, 100`（c=1） | `rate=10 %/h`，**`eta=nil`**（已满） |
-| C5 | `50`（单点，c=1） | 段 1 个但 `rate=nil`（没有时长，不许除以 0） |
-| C6 | `60, 60`（c=1，2h） | **`rate=nil`**（不给 0.00） |
-| C7 | `40, 45, 45, 50` | 1 段 3 点，`elapsed=2H`，`rate=2.5 %/h`（持平不断段） |
-| C8 | `50, 50(c=1), 45` | 段 1 个已闭合，零充入段不进 `avgRate`，`avgRate=nil` |
-| D1 | `(t,77), (t,75), (t+H,79)` | 去重后 2 点，`drops=0` |
-| S1 | `100, 96`（间隔 2h） | `rate=2 %/h`，`reg=false`，`life=50h` |
-| S2 | `100, 99, 98, 97, 96` | `rate=1 %/h`，`reg=true`，`life=100h` |
-| S3 | `50, 95, 50` | 中点 `jump=true`，不计采样不计掉电 |
-| S4 | `60, 60` 平盘 | `rate=nil`，`life=nil`（不给「剩余 0 小时」） |
+#### 5.3 兜底
 
-**这 13 组全过才算对齐。** 在 `README-iPad.md` 里贴真实运行输出，不要只写「已通过」。
-
-**这是粗估，不是承诺。** App 内与 README 都要有一句「预计续航按最近放电速率线性外推，仅供参考」。
+- 接口失败 → 用**上次成功的 JSON 缓存**渲染；App 内标「离线」，Widget 内静默。
+- 字段缺失/解码失败 → 按 `noData` 处理，显示 `--`，**不崩、不显示英文错误**。
+- 免责声明照写：「预计续航按最近放电速率线性外推，仅供参考」。
 
 ### 6. Widget 源码（阶段 B，只写不构建）
 
@@ -197,7 +253,10 @@ enum DurationEstimate: Equatable {
 
 1. `WatchSyncWidgetBundle.swift`：`@main` WidgetBundle，只含一个 widget。
 2. `WatchSyncWidget.swift`：`StaticConfiguration`，`supportedFamilies: [.systemSmall, .systemMedium, .systemLarge]`，`TimelineProvider` 实现 `placeholder` / `getSnapshot` / `getTimeline`。
-   - `getTimeline` 逻辑：先读 App Group 缓存构造 entry（保证永远有内容）→ 若 `savedAt` 超过 10 分钟则尝试联网（**6 秒超时**，最多 6 台设备并发，只有 large 才拉 `/dash/hist?range=86400000`）→ 失败静默用缓存 → `Timeline(entries: [entry], policy: .after(now + 15*60))`。
+   - `getTimeline` 逻辑：先读 App Group 缓存构造 entry（保证永远有内容）→ 若 `savedAt` 超过 10 分钟则尝试联网（**6 秒超时**，最多 6 台设备并发；设备状态一律拉 `GET /dash/stats?key=...`，只有 large 才额外加 `&points=1` 取 `curve`）→ 失败静默用缓存 → `Timeline(entries: [entry], policy: .after(now + 15*60))`。
+   - **每一次 `getTimeline` 都要走联网那一步**（有 10 分钟节流，但不是「只刷一次」）。
+   - App 前台刷新成功后必须调 `WidgetCenter.shared.reloadAllTimelines()`。
+   - **验收硬条款**：组件放置 **1 小时以上**、完全不打开 App，仍必须自动更新；断网时静默用缓存不报错；文案不许承诺「实时 / 每分钟同步」（系统一天只给有限次刷新，15 分钟是请求不是保证）。
    - **Widget 里一律不显示错误文本**，只用缓存或空态。
 3. `WidgetViews.swift`：按 `widgetFamily` 分支渲染。
    - 小号：最多 3 台，每行「名称 + 电量% + 充电时 `bolt.fill`」+ 底部相对时间。`level == nil` 显示 `--`（不要显示 0）。电量数字**一律用主文字色** `#e6ecf8`，**不做阈值分色**（>50 绿 / <20 红是错的）：颜色只表达事件 —— 充电中 `#34d399`、推测充电 `#5eead4`、掉电 `#f87171`、警示 `#fbbf24`。
@@ -231,24 +290,24 @@ WatchSync.playground/          或 .swiftpm App 项目（阶段 A，可运行）
   Sources/Config.swift          BASE_URL + token 读取（不含明文）
   Sources/Models.swift          §3 的模型
   Sources/APIClient.swift
-  Sources/DurationEstimator.swift
+  Sources/StatsModels.swift     §3 的 /dash/stats 模型（纯 Decodable，无计算）
   Sources/Views/*.swift         三屏
-  Tests/AlgorithmTests.swift    §5 的 13 组用例断言
+  Tests/DecodeTests.swift       /dash/stats 解码测试（七种 status + lines 1/5 行 + curve 有无）
 Widget/                        阶段 B，仅源码 + TODO-XCODE 标注
   三个文件见 §6
 README-iPad.md                 见下
 .gitignore                     排除 Secrets.swift / *.xcconfig
 ```
-`README-iPad.md` 必须写清：token 怎么填、哪些部分已在 iPad 验证、哪些必须回 Mac（Widget / App Group / Keychain Sharing）、续航估算的免责声明（线性外推，仅供参考）、已知限制。
+`README-iPad.md` 必须写清：token 怎么填、哪些部分已在 iPad 验证、哪些必须回 Mac（Widget / App Group / Keychain Sharing）、续航估算的免责声明（线性外推，仅供参考）、小组件刷新机制与「15 分钟是请求不是保证」的限制、已知限制。
 
 ### 9. 完成自检（逐条回答，别笼统说"已完成"）
 
-1. `AlgorithmTests` 实际输出是什么？§5 表格里 C1–C8、D1、S1–S4 共 13 组是否逐条覆盖通过？
+1. `DecodeTests` 实际输出是什么？七种 `status` 的 fixture 是否都能解码并原样渲染 `display.title/subtitle`（不是你自己拼的文案）？
 2. 解码遇到 `l: null` / `c: null` / `hist: []` 分别怎么处理？
 3. 断网时详情页显示什么？会不会白屏或弹错误？
 4. 代码里是否出现 `PUT`/`POST`/`DELETE`？（应为 0 处）
 5. 有没有把 7 天、604800000 硬编码进 UI 文案？（应该用 `/health` 的返回值）
-6. Widget 部分你**没有**构建，是否已在文件头标注 `TODO-XCODE`？
+6. Widget 部分你**没有**构建，是否已在文件头标注 `TODO-XCODE`？`getTimeline` 是否返回 `policy: .after(+15 分钟)`（不是 `.never`）？App 刷新后是否调了 `reloadAllTimelines()`？
 7. token 是否只出现在被 gitignore 的文件里？
 
 ### 10. 禁止事项（违反即返工）
@@ -261,7 +320,9 @@ README-iPad.md                 见下
 - ❌ Widget 里用 Swift Charts。
 - ❌ 承诺「实时」「每分钟同步」。
 - ❌ 在 Widget 上显示报错文本。
-- ❌ **自己重写/「优化」预测算法**。它是 §5 与 `docs/ALGO.md` 那套，Web 已实现，你只移植。改算法前先提 issue 说明现算法错在哪。
+- ❌ **自己实现预测/续航算法**。v11.6 起全部由 `GET /dash/stats` 提供。出现 Swift 版 `DurationEstimator` / 回归 / 充电段状态机 = 返工。
+- ❌ **小组件不写自动刷新**（`policy: .never`、只在首次联网、不调 `reloadAllTimelines()`）= 返工。
+- ❌ 改写或重拼 `display.title` / `display.subtitle` / `display.lines`（包括「拆开再自己加单位」）。
 - ❌ **自己设计 UI**：自创色板/圆角/动效、按电量阈值分色、自创状态词。一律照 `docs/DESIGN.md`。
 - ❌ **声称做了实际没做的构建/测试**（这条是底线）。
 

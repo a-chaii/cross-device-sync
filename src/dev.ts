@@ -166,7 +166,7 @@ x-sync-token: &lt;SYNC_TOKEN&gt;
   "id":"server",
   "name":"服务端 + Web",
   "role":"Worker · KV · 看板 · 文档",
-  "phase":"v11.5 已上线",
+  "phase":"v11.6 已上线",
   "doing":"正在做什么（一句话）",
   "next":["下一步 A","下一步 B"],
   "blockers":[],
@@ -301,6 +301,7 @@ const DOCS_HTML = `<!doctype html>
 <b>PUT</b>    /:key                          <i>token · body {"value":&lt;任意 JSON&gt;} 上限 24KB</i>
 <b>DELETE</b> /:key                          <i>token · 同时清理 @hist:&lt;key&gt;</i>
 <b>GET</b>    /dash/hist?key=&amp;range=         <i>token · 只读历史（原生端专用，已带 CORS）</i>
+<b>GET</b>    /dash/stats?key=&amp;range=        <i>token · 预测统计：速率/续航/充电段/文案全部算好，客户端零算法</i>
 <b>GET</b>    /status                        <i>token 或看板 cookie · 三端状态聚合</i>
 <b>GET</b>    /dev · /docs                   <i>协作台（需登录）· 本文档（公开）</i></pre>
     <p class="note">鉴权二选一：请求头 <code>x-sync-token</code>；或先 <code>POST /dash</code> 用 <code>DASH_PWD</code> 换 <code>ws_dash</code> cookie。原生端<b>不要</b>内置看板密码。</p>
@@ -325,7 +326,7 @@ const DOCS_HTML = `<!doctype html>
     </p>
   </div>
 
-  <div class="h2">4 · 八条硬约束（改之前先问）</div>
+  <div class="h2">4 · 十条硬约束（改之前先问）</div>
   <div class="panel">
     <ul class="doc">
       <li><b>C1 保留 7 天</b>：604800000 ms，写侧剪枝 + 读侧过滤 + range 夹紧三处同源。</li>
@@ -335,7 +336,9 @@ const DOCS_HTML = `<!doctype html>
       <li><b>C5 采样时间单调递增</b>：裁剪与绘图都依赖这条不变量。</li>
       <li><b>C6 同值不落点</b>：<code>level</code> 与 <code>charging</code> 都没变就不记点。</li>
       <li><b>C7 采集端必须节流</b>：实测充电/锯齿时段采样间隔从 30 分钟塌到 0.5–2 分钟，蓝牙查询 + PUT 唤醒频率翻约 20 倍，直接表现为手机发热。轮询下限建议 5 分钟，且 <code>level</code> 与 <code>charging</code> 双未变时<b>整轮跳过、连蓝牙都别查</b>。</li>
-      <li><b>C8 只读端不许自研</b>：预测算法以第 7 节 / <code>docs/ALGO.md</code> 为准，UI 以第 8 节 / <code>docs/DESIGN.md</code> 为准。原生端只做「等价翻译」，重写算法或自创视觉＝返工。曾出现 iPad 端照旧文档自己重搓算法、与 Web 分叉的情况，故此条升级为硬约束。</li>
+      <li><b>C8 只读端不许自研</b>：UI 以第 8 节 / <code>docs/DESIGN.md</code> 为准，原生端只做「等价翻译」，自创视觉＝返工。预测算法自 v11.6 起搬到服务端，见 C9。</li>
+      <li><b>C9 预测只许调接口</b>：<code>GET /dash/stats</code> 是唯一真源（第 7 节 / <code>docs/API_STATS.md</code>）。原生端出现任何 Swift 版回归 / 充电段状态机 / <code>DurationEstimator</code> ＝返工；<code>display.title/subtitle/lines</code> 必须逐字上屏，不许改写或重拼。曾出现 iPad 端照旧文档自己重搓算法、与 Web 分叉（Web 39 时、客户端 42 时），故此条为硬约束。</li>
+      <li><b>C10 小组件必须自动刷新</b>：<code>Timeline(policy: .after(+15 分钟))</code> + 每次 <code>getTimeline</code> 都联网 + App 刷新后 <code>reloadAllTimelines()</code>；放置 1 小时以上、不打开 App 仍须自更新。只给 <code>.never</code>、只在首次联网、断网弹错误＝验收不通过（第 9 节）。</li>
     </ul>
   </div>
 
@@ -362,28 +365,40 @@ const DOCS_HTML = `<!doctype html>
     <p class="note">只有「设备键」会进看板设备列表、才会写历史采样。</p>
   </div>
 
-  <div class="h2">7 · 预测算法（v11.5 · 原生端只移植，不许重写）</div>
+  <div class="h2">7 · 预测统计接口 /dash/stats（v11.6 · 客户端零算法）</div>
   <div class="panel">
-    <p class="note"><b>旧口径已废弃</b>：过滤充电点 → 首末差分 → <code>slope &lt;= 0.2</code> 视为稳定 → 240h 上限。它会被 90↔100 的锯齿骗到 <b>3.47 %/h</b>（满电 28.8 小时），而真实放电只有 <b>1.2 %/h</b>。原生端不要再按旧口径实现。</p>
-<pre>1 清洗   丢 l==null；同一毫秒只留先到者（模块会在同一 tick 连写 79 和 75）
-2 打标   rep = c==1
-         jump = |b-a|&gt;=8 且 |b-c|&gt;=8 且 |a-c|&lt;=2   <i>孤立尖点，不参与统计也不画点</i>
-         inf  = 未上报充电 且 l-prevL&gt;=1          <i>相对上一个非尖点上涨</i>
-3 回归   只用「两端都不在充电」的相邻点做最小二乘
-         样本&lt;3 或斜率&gt;=0 → 回退首末差分，UI 加 ~
-4 续航   life = 100/rate；&gt;720h 不显示；稀疏设备（跨度&gt;=2h 且空档占比&gt;55%）显「数据不足」
-5 充电   chgStat 状态机 → 已充多久 / 充电速率 / 预计充满</pre>
+    <p class="note">v11.6 起预测整条链路在服务端：<code>src/stats.ts</code> 是唯一实现，九个算法函数从 <code>dash.ts</code> 的浏览器 JS 逐字移植，并由交叉一致性测试（182 条断言）钉死。原生端<b>不写算法</b>，只解码 <code>display.*</code> 原样渲染。</p>
+<pre><b>GET</b> /dash/stats?key=watch/battery       <i>单设备</i>
+<b>GET</b> /dash/stats                       <i>全部设备（按 link.at 倒序）</i>
+<b>GET</b> /dash/stats?key=..&amp;range=&lt;ms&gt;    <i>时间窗，上限 604800000</i>
+<b>GET</b> /dash/stats?key=..&amp;all=1         <i>视窗=全部采样（默认 cyclePts：从最后一个满电点切起）</i>
+<b>GET</b> /dash/stats?key=..&amp;points=1      <i>附带 curve:[[t,l]]（≤240 点，等距抽稀、保留首末点、尖点不入曲线）</i>
+
+<i>→</i> {"key":"watch/battery","label":"手表","now":1793900000000,
+   "retentionMs":604800000,"rangeMs":0,
+   "device":{"level":64,"levelAt":...,"link":{"at":..,"ageMs":..,"state":"ok"},
+             "status":"discharging",
+             "flags":{"linkStopped":false,"levelStale":false,"sparse":false,
+                      "gapRatio":0,"insufficient":false},
+             "charging":{"on":false,"inferred":false,"elapsedText":"0 秒",..},
+             "discharge":{"rate":2.56,"rateText":"2.56 %/h","lifeHours":39.1,
+                          "lifeText":"1 天 15 时","delta24h":-18,..},
+             "charge":{"segments":1,"gain":30,"gainText":"+30%",..},
+             "display":{"title":"掉电 2.56 %/h","subtitle":"满电约 1 天 15 时",
+                        "lines":["电量 1 分前","链路 1 分前",..]}}}</pre>
     <table>
-      <tr><th>项</th><th>值</th><th>含义</th></tr>
-      <tr><td>JUMP</td><td>8</td><td>尖点判定的最小跳幅（百分点）</td></tr>
-      <tr><td>容差</td><td>2</td><td>前后两点彼此相近的上限</td></tr>
-      <tr><td>上升阈值</td><td>1</td><td>判定 inf 的最小涨幅</td></tr>
-      <tr><td>回归样本</td><td>&gt;=3</td><td>不足则回退差分</td></tr>
-      <tr><td>续航上限</td><td>720h</td><td>超过不显示（旧版 240h）</td></tr>
-      <tr><td>速率最小窗</td><td>180000ms</td><td>不足则不给 rate，不许显示 <code>0.00 %/h</code></td></tr>
+      <tr><th>status</th><th>条件</th><th>display.title</th></tr>
+      <tr><td><code>noData</code></td><td>没有任何采样点</td><td>无数据</td></tr>
+      <tr><td><code>charging</code></td><td>未闭合充电段且设备自报 <code>c=1</code></td><td>充电中 · 已充 49 分</td></tr>
+      <tr><td><code>inferredCharging</code></td><td>未闭合充电段但靠上涨推断</td><td>推测充电 · 已充 20 分</td></tr>
+      <tr><td><code>full</code></td><td><code>l&gt;=100</code> 且不在充电</td><td>已充满</td></tr>
+      <tr><td><code>sparse</code></td><td>空洞占比 &gt;0.55 且跨度 &gt;=2h</td><td>数据不足</td></tr>
+      <tr><td><code>insufficient</code></td><td><code>rate</code> 或 <code>life</code> 为 null</td><td>数据不足</td></tr>
+      <tr><td><code>discharging</code></td><td>其余</td><td>掉电 2.56 %/h</td></tr>
     </table>
-    <p class="note"><b>充电段三条铁律</b>：持平<b>必须续段</b>；只有<b>掉电</b>才收段；尖点直接跳过。<code>elapsed = last.t - last.t0</code>，<b>绝不</b>外推到 now —— 息屏冻结会把「已充 5 小时」吹成 8 小时。<code>l==100</code> 时不给 eta，写「已充满」。</p>
-    <p class="note">同一份 <code>hist</code> 喂给 Web 与原生端，数字必须逐位一致。手表最近一次充电段：<b>49→79%</b>、<code>elapsed≈0.82h</code>、<code>rate≈36.63 %/h</code>、<code>eta≈0.57h</code>。完整口径、伪码与 13 组校验用例见仓库 <code>docs/ALGO.md</code>。</p>
+    <p class="note"><b>副标题</b>：<code>charging/inferredCharging</code> →「约 34 分后充满」，速率不足写「速率样本不足」，已到 100% 写「已到 100%，可以拔电了」（<b>绝不出现「约 —后充满」</b>）；<code>full/discharging</code> →「满电约 1 天 15 时」，无续航写「满电续航待估」；<code>sparse</code> →「采样太稀疏，约 N% 的时间没有数据」（N 取自 <code>flags.gapRatio</code>）。</p>
+    <p class="note"><b>display 是成品文案</b>：三个字段逐字上屏，不许改写、拼接、加 emoji、自己补单位。<code>lines</code> 为 <b>1–5 行</b>，行数随状态变化（无数据时只有 1 行），别按固定 5 行占位。无值写 <code>—</code>。</p>
+    <p class="note"><b>口径参考（只用于理解数字，不要实现）</b>：剔除孤立尖点（JUMP=8、容差 2）→ 最小二乘回归（样本&lt;3 或斜率&gt;=0 回退首末差分并加 <code>~</code>）→ 续航 100/rate，&gt;720h 不显示 → 充电段状态机（持平续段、掉电收段、尖点跳过），<code>elapsed=last.t-last.t0</code> <b>绝不外推到 now</b>，<code>l&gt;=100</code> 不给 eta。完整字段契约见 <code>docs/API_STATS.md</code>。</p>
   </div>
 
   <div class="h2">8 · 视觉规范（原生端只做等价翻译）</div>
@@ -407,7 +422,21 @@ const DOCS_HTML = `<!doctype html>
     <p class="note">完整色值表、组件清单、状态矩阵、文案正反例、Web→SwiftUI 映射见仓库 <code>docs/DESIGN.md</code>。</p>
   </div>
 
-  <div class="h2">9 · 版本</div>
+  <div class="h2">9 · 小组件自动刷新（验收硬条款）</div>
+  <div class="panel">
+    <table>
+      <tr><th>#</th><th>条款</th><th>怎么验</th></tr>
+      <tr><td>R1</td><td><code>getTimeline</code> 返回 <code>Timeline(entries:[entry], policy: .after(now + 15*60))</code></td><td>读代码；<code>.never</code> / <code>.atEnd</code> 不合格</td></tr>
+      <tr><td>R2</td><td><b>每次</b> <code>getTimeline</code> 都尝试联网（10 分钟缓存节流 ≠ 只刷一次）</td><td>杀掉 App 等 30 分钟看组件是否变</td></tr>
+      <tr><td>R3</td><td>App 前台刷新成功后调 <code>WidgetCenter.shared.reloadAllTimelines()</code></td><td>下拉刷新，组件几秒内跟着变</td></tr>
+      <tr><td>R4</td><td>组件放置 <b>&gt;=1 小时</b>、不打开 App 仍自动更新</td><td>挂机 1 小时截图对比</td></tr>
+      <tr><td>R5</td><td>断网静默用缓存，<b>不出现错误文本/红叹号</b></td><td>飞行模式看三种尺寸</td></tr>
+      <tr><td>R6</td><td>文案不承诺「实时 / 每分钟同步」；README 写清刷新预算</td><td>查文案</td></tr>
+    </table>
+    <p class="note"><b>刷新预算</b>：WidgetKit 每个组件每天只有几十次刷新额度，<code>policy: .after</code> 只是「建议 15 分钟后叫我」，真正何时刷新由系统决定（低电量、后台受限、长时间没被看见都会延后）。所以不许把间隔改到 1 分钟——既不会生效，还会被限流。断网时必须静默用缓存。</p>
+  </div>
+
+  <div class="h2">10 · 版本</div>
   <div class="panel">
     <table>
       <tr><th>版本</th><th>内容</th></tr>
@@ -415,11 +444,12 @@ const DOCS_HTML = `<!doctype html>
       <tr><td><b>v11.2</b></td><td><code>/dev</code> 协作台 · <code>/docs</code> 文档 · <code>/status</code> 聚合 · 非设备键不再写历史</td></tr>
       <tr><td><b>v11.4</b></td><td>卡片拆「电量时间 / 链路时间」· 链路冻结提示 · 曲线跳过尖点</td></tr>
       <tr><td><b>v11.5</b></td><td>充放电双模式 · <code>chgStat</code> 充电段统计 · 预计充满 · 采样日志「已充电多久」</td></tr>
+      <tr><td><b>v11.6</b></td><td><code>GET /dash/stats</code> 预测统计算在服务端（<code>src/stats.ts</code>）· <code>display</code> 成品文案 · <code>status</code> 七值 · <code>flags.gapRatio</code> · <code>points=1</code> 曲线抽稀 · <b>客户端零算法</b> · 小组件自动刷新列为硬条款</td></tr>
     </table>
   </div>
 
   <hr>
-  <p class="note">完整实现细节见仓库 <code>docs/TECH.md</code>、<code>docs/REQUIREMENTS.md</code>、<code>docs/IOS_PROMPT.md</code>、<code>docs/ALGO.md</code>（算法唯一实现）、<code>docs/DESIGN.md</code>（视觉规范）。本页只保证「对接所需的最小真相」。</p>
+  <p class="note">完整实现细节见仓库 <code>docs/TECH.md</code>、<code>docs/REQUIREMENTS.md</code>、<code>docs/IOS_PROMPT.md</code>、<code>docs/IPAD_AGENT_PROMPT.md</code>、<code>docs/API_STATS.md</code>（预测接口契约）、<code>docs/ALGO.md</code>（口径解释）、<code>docs/DESIGN.md</code>（视觉规范）。本页只保证「对接所需的最小真相」。</p>
 </div>
 </body></html>`;
 
