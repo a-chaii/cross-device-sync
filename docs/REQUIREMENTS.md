@@ -1,7 +1,7 @@
 # WatchSync 需求文档（PRD）
 
-> 对应实现：v11.1（`3c3021b` + `21674dd`）
-> 技术细节见 `docs/TECH.md`；iOS 落地见 `docs/IOS_PROMPT.md`
+> 对应实现：v11.5
+> 技术细节见 `docs/TECH.md`；iOS 落地见 `docs/IOS_PROMPT.md`、`docs/IPAD_AGENT_PROMPT.md`；算法见 `docs/ALGO.md`；视觉见 `docs/DESIGN.md`
 > 文档定位：**说明「要什么」和「不要什么」**，不描述实现细节
 
 ---
@@ -106,12 +106,12 @@
 | 尺寸 | 必须显示 | 说明 |
 |---|---|---|
 | `.systemSmall` | 最多 3 台设备的**当前电量** + 充电图标 + 相对更新时间 | 按 `updatedAt` 倒序 |
-| `.systemMedium` | 每台设备的**预计续航**（按放电速率外推） | 充电中显示「充电中」；样本不足显示「数据不足」 |
+| `.systemMedium` | 每台设备的**预计续航**（按放电速率外推） | 充电中显示「充电中 · 已充 X」；`c` 缺失但电量在涨显示「推测充电」；样本不足/稀疏/>720h 显示「数据不足」；**没有「电量稳定」这个状态** |
 | `.systemLarge` | 中号内容 + **最近 24 小时曲线** | 曲线用 `Canvas`/`Path` 自绘，`l==nil` 断开，单点画点不画线 |
 
 - FR-7.1 刷新：`Timeline` 策略 `.after(+15min)`；App 前台刷新成功后 `reloadAllTimelines()`。
 - FR-7.2 **离线必须可用**：网络失败时静默使用缓存，组件不得显示错误文本。
-- FR-7.3 预计续航必须按固定公式（见 `IOS_PROMPT.md` §6），**样本不足时宁可不给结论**。
+- FR-7.3 预计续航必须按固定公式（唯一真源 `ALGO.md`，摘要见 `IOS_PROMPT.md` §6 / `IPAD_AGENT_PROMPT.md` §5），**样本不足时宁可不给结论**；不许各端自行实现。
 - FR-7.4 预计续航是粗估，UI 与 README 均需注明「线性外推，仅供参考」。
 
 ### 4.8 展示要求

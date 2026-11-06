@@ -1,7 +1,7 @@
 # WatchSync / Cross-Device Sync 技术文档
 
 > 版本：v11.5
-> 配套文档：`docs/REQUIREMENTS.md`（需求与硬约束）、`docs/IOS_PROMPT.md`（iOS 端开发提示词）
+> 配套文档：`docs/REQUIREMENTS.md`（需求与硬约束）、`docs/IOS_PROMPT.md`（iOS 端开发提示词）、`docs/ALGO.md`（预测算法唯一实现）、`docs/DESIGN.md`（视觉/交互/文案规范）
 > 部署形态：Cloudflare Workers（单 Worker）+ Workers KV
 > 代码：`src/index.ts`（路由/鉴权/记录 CRUD）、`src/dash.ts`（看板 + 历史采样）、`src/hub.ts`（状态页）、`src/intro.ts`（介绍页）
 
@@ -462,6 +462,7 @@ status/ipad       iPad 客户端
 | 版本 | 变更 |
 |---|---|
 | v11.5 | 充放电双模式：`chgStat()` 充电段统计（已充时长/充入电量/充电速率/预计充满/平均充电速率），`.seg` 右上角切换按钮，掉电分布同步「充入电量」面板，采样日志第 4 列随模式切「距上次掉电 / 已充电多久」，卡片显示「已充 X」；`ptsOf()` 对同一毫秒重复写入去重；充电段允许持平续段 |
+| docs v11.5 | 新增 `docs/ALGO.md`（预测算法唯一实现：输入契约/管线/参数/`chgStat` 伪码/13 组校验用例）与 `docs/DESIGN.md`（视觉 token 表/组件清单/九状态矩阵/文案正反例/Web→SwiftUI 映射）；`IOS_PROMPT.md` §6 换为新算法、§5.3 取消电量阈值分色、§11 新增两条禁止；`IPAD_AGENT_PROMPT.md` §5 整节重写（原 `slope<=0.2`/240h/分钟圆 5 的旧口径废弃）；`/docs` 补 §7 算法与 §8 视觉规范、硬约束增至 C8 |
 | v11.4 | 卡片拆「电量时间 / 链路时间」双时间：`链路` 取 KV 主键 `updatedAt`（≥2h 置灰提示进程被冻结），`电量` 取历史最后一点；曲线与散点跳过 `jump` 尖点 |
 | v11.3 | 续航预测降噪：新增 `annotate()` 标注 `rep`/`jump`/`inf`，剔除孤立尖点、排除充电上升段、以最小二乘回归代替首末差分，续航超 720h 不显示；`charging` 缺失时用上升趋势推断「推测充电」；修复 `dash.ts` 中 `esc()` 将 `"` 映射为自身的转义漏洞 |
 | v11.2 | 新增 `/docs`（公开开发文档）、`/dev`（协作台，cookie）、`/status`（三端状态聚合，token 或 cookie）；`status/<端>` 一端一键永不共写；`appendHist` 对非设备键短路（`status/*` 不再产生 `@hist:` 垃圾键，写入 2 次降 1 次）；主页扩至 6 张卡片 |

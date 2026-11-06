@@ -325,7 +325,7 @@ const DOCS_HTML = `<!doctype html>
     </p>
   </div>
 
-  <div class="h2">4 · 六条硬约束（改之前先问）</div>
+  <div class="h2">4 · 八条硬约束（改之前先问）</div>
   <div class="panel">
     <ul class="doc">
       <li><b>C1 保留 7 天</b>：604800000 ms，写侧剪枝 + 读侧过滤 + range 夹紧三处同源。</li>
@@ -335,6 +335,7 @@ const DOCS_HTML = `<!doctype html>
       <li><b>C5 采样时间单调递增</b>：裁剪与绘图都依赖这条不变量。</li>
       <li><b>C6 同值不落点</b>：<code>level</code> 与 <code>charging</code> 都没变就不记点。</li>
       <li><b>C7 采集端必须节流</b>：实测充电/锯齿时段采样间隔从 30 分钟塌到 0.5–2 分钟，蓝牙查询 + PUT 唤醒频率翻约 20 倍，直接表现为手机发热。轮询下限建议 5 分钟，且 <code>level</code> 与 <code>charging</code> 双未变时<b>整轮跳过、连蓝牙都别查</b>。</li>
+      <li><b>C8 只读端不许自研</b>：预测算法以第 7 节 / <code>docs/ALGO.md</code> 为准，UI 以第 8 节 / <code>docs/DESIGN.md</code> 为准。原生端只做「等价翻译」，重写算法或自创视觉＝返工。曾出现 iPad 端照旧文档自己重搓算法、与 Web 分叉的情况，故此条升级为硬约束。</li>
     </ul>
   </div>
 
@@ -361,7 +362,52 @@ const DOCS_HTML = `<!doctype html>
     <p class="note">只有「设备键」会进看板设备列表、才会写历史采样。</p>
   </div>
 
-  <div class="h2">7 · 版本</div>
+  <div class="h2">7 · 预测算法（v11.5 · 原生端只移植，不许重写）</div>
+  <div class="panel">
+    <p class="note"><b>旧口径已废弃</b>：过滤充电点 → 首末差分 → <code>slope &lt;= 0.2</code> 视为稳定 → 240h 上限。它会被 90↔100 的锯齿骗到 <b>3.47 %/h</b>（满电 28.8 小时），而真实放电只有 <b>1.2 %/h</b>。原生端不要再按旧口径实现。</p>
+<pre>1 清洗   丢 l==null；同一毫秒只留先到者（模块会在同一 tick 连写 79 和 75）
+2 打标   rep = c==1
+         jump = |b-a|&gt;=8 且 |b-c|&gt;=8 且 |a-c|&lt;=2   <i>孤立尖点，不参与统计也不画点</i>
+         inf  = 未上报充电 且 l-prevL&gt;=1          <i>相对上一个非尖点上涨</i>
+3 回归   只用「两端都不在充电」的相邻点做最小二乘
+         样本&lt;3 或斜率&gt;=0 → 回退首末差分，UI 加 ~
+4 续航   life = 100/rate；&gt;720h 不显示；稀疏设备（跨度&gt;=2h 且空档占比&gt;55%）显「数据不足」
+5 充电   chgStat 状态机 → 已充多久 / 充电速率 / 预计充满</pre>
+    <table>
+      <tr><th>项</th><th>值</th><th>含义</th></tr>
+      <tr><td>JUMP</td><td>8</td><td>尖点判定的最小跳幅（百分点）</td></tr>
+      <tr><td>容差</td><td>2</td><td>前后两点彼此相近的上限</td></tr>
+      <tr><td>上升阈值</td><td>1</td><td>判定 inf 的最小涨幅</td></tr>
+      <tr><td>回归样本</td><td>&gt;=3</td><td>不足则回退差分</td></tr>
+      <tr><td>续航上限</td><td>720h</td><td>超过不显示（旧版 240h）</td></tr>
+      <tr><td>速率最小窗</td><td>180000ms</td><td>不足则不给 rate，不许显示 <code>0.00 %/h</code></td></tr>
+    </table>
+    <p class="note"><b>充电段三条铁律</b>：持平<b>必须续段</b>；只有<b>掉电</b>才收段；尖点直接跳过。<code>elapsed = last.t - last.t0</code>，<b>绝不</b>外推到 now —— 息屏冻结会把「已充 5 小时」吹成 8 小时。<code>l==100</code> 时不给 eta，写「已充满」。</p>
+    <p class="note">同一份 <code>hist</code> 喂给 Web 与原生端，数字必须逐位一致。手表最近一次充电段：<b>49→79%</b>、<code>elapsed≈0.82h</code>、<code>rate≈36.63 %/h</code>、<code>eta≈0.57h</code>。完整口径、伪码与 13 组校验用例见仓库 <code>docs/ALGO.md</code>。</p>
+  </div>
+
+  <div class="h2">8 · 视觉规范（原生端只做等价翻译）</div>
+  <div class="panel">
+    <table>
+      <tr><th>token</th><th>值</th><th>用途</th></tr>
+      <tr><td><code>--bg</code></td><td>#0b0f19</td><td>底色，叠 900×500 径向渐晕到 #16233f</td></tr>
+      <tr><td><code>--card</code></td><td>rgba(18,24,38,.82)</td><td>面板 / 卡片底</td></tr>
+      <tr><td><code>--line</code></td><td>rgba(120,150,255,.16)</td><td>所有描边</td></tr>
+      <tr><td><code>--txt</code></td><td>#e6ecf8</td><td>正文、电量数字</td></tr>
+      <tr><td><code>--muted</code></td><td>#8b98b3</td><td>次要文字</td></tr>
+      <tr><td><code>--blue</code></td><td>#3b82f6</td><td>选中态、主色</td></tr>
+      <tr><td><code>--green</code></td><td>#34d399</td><td>充电中、上涨</td></tr>
+      <tr><td><code>--red</code></td><td>#f87171</td><td>掉电</td></tr>
+      <tr><td>warn</td><td>#fbbf24</td><td>链路已停、剔噪计数</td></tr>
+      <tr><td>青色</td><td>#5eead4</td><td>推测充电（不是真充电）</td></tr>
+      <tr><td>设备色</td><td>#60a5fa #34d399 #fbbf24 #f472b6 #22d3ee #a78bfa #fb923c #4ade80</td><td>固定序列，禁重排</td></tr>
+    </table>
+    <p class="note">圆角只用 <b>3 / 6 / 9 / 14 / 16 / 18 / 999</b>。层级只准三层：<b>页面 → panel → card</b>。字号：正文 13、次要 11–12、卡片大数字 1.6rem / 字重 650。</p>
+    <p class="note"><b>四条禁令</b>：① 不按电量阈值分色（&gt;50 绿 / &lt;20 红）—— 电量数字一律主文字色，颜色只表达<b>事件</b>；② 不用 emoji 当图标；③ 不自创状态词（只有九种：正常 / 链路已停 / 电量未变 / 无数据 / 加载失败 / 稀疏 / 未充电 / 已满电 / 推测充电）；④ 24 小时分布不许改成饼图。无值写 <code>—</code>（大数字位写 <code>--</code>），时长写「49 分」，不写 <code>49min</code>。</p>
+    <p class="note">完整色值表、组件清单、状态矩阵、文案正反例、Web→SwiftUI 映射见仓库 <code>docs/DESIGN.md</code>。</p>
+  </div>
+
+  <div class="h2">9 · 版本</div>
   <div class="panel">
     <table>
       <tr><th>版本</th><th>内容</th></tr>
@@ -373,7 +419,7 @@ const DOCS_HTML = `<!doctype html>
   </div>
 
   <hr>
-  <p class="note">完整实现细节见仓库 <code>docs/TECH.md</code>、<code>docs/REQUIREMENTS.md</code>、<code>docs/IOS_PROMPT.md</code>。本页只保证「对接所需的最小真相」。</p>
+  <p class="note">完整实现细节见仓库 <code>docs/TECH.md</code>、<code>docs/REQUIREMENTS.md</code>、<code>docs/IOS_PROMPT.md</code>、<code>docs/ALGO.md</code>（算法唯一实现）、<code>docs/DESIGN.md</code>（视觉规范）。本页只保证「对接所需的最小真相」。</p>
 </div>
 </body></html>`;
 
