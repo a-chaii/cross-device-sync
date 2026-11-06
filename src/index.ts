@@ -160,7 +160,13 @@ export default {
       }
       const hr = Number(url.searchParams.get('range') || '0');
       const hrange = Number.isFinite(hr) && hr > 0 ? Math.min(hr, HIST_TTL_MS) : 0;
-      return dashHistory(env, hk, hrange);
+      // dashHistory() 返回的 JSON 没带 CORS 头：原生客户端无所谓，
+      // 但 Web 端跨域调用 /dash/hist 会被浏览器拦。这里复制响应再合并 cors，
+      // 避免把 HTTP 层的事塞进 dash.ts。
+      const histRes = await dashHistory(env, hk, hrange);
+      const histHeaders: Record<string, string> = {};
+      histRes.headers.forEach((v, k) => { histHeaders[k] = v; });
+      return new Response(histRes.body, { status: histRes.status, headers: { ...histHeaders, ...cors } });
     }
     // /list
     if (path === '/list' && method === 'GET') {
