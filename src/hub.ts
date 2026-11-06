@@ -30,6 +30,10 @@ const ICON_PULSE =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12h4l2-5 4 10 2-5h8"/></svg>';
 const ICON_CODE =
   '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M9 18l-5-6 5-6"/><path d="M15 6l5 6-5 6"/></svg>';
+const ICON_TEAM =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="9" cy="8" r="3.2"/><path d="M2.8 20c0-3.4 2.8-6.2 6.2-6.2s6.2 2.8 6.2 6.2"/><path d="M16.2 5.4a3.2 3.2 0 0 1 0 5.4"/><path d="M18.2 14.4c1.9.9 3 2.9 3 5.6"/></svg>';
+const ICON_BOOK =
+  '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M4 4.8A2.8 2.8 0 0 1 6.8 2H20v20H6.8A2.8 2.8 0 0 1 4 19.2z"/><path d="M8 7.5h8"/><path d="M8 11.5h6"/></svg>';
 
 const CSS_A = `
   *{box-sizing:border-box}
@@ -127,6 +131,8 @@ const CSS_A = `
   a.card.g2 .ic{color:#c4b5fd}
   a.card.g3 .ic{color:#6ee7b7}
   a.card.g4 .ic{color:#7dd3fc}
+  a.card.g5 .ic{color:#fcd34d}
+  a.card.g6 .ic{color:#a5b4fc}
   .t{font-size:.92rem;font-weight:620;display:flex;align-items:center;gap:8px}
   .d{margin:6px 0 0;color:var(--muted);font-size:.79rem;line-height:1.65}
   .tag{
@@ -208,6 +214,20 @@ const CSS_A = `
       <p class="d">整条链路的原理、模块职责边界，以及为什么这么设计。</p>
       <span class="tag">/intro</span>
     </a>
+    <a class="card g5" href="/dev">
+      <span class="arrow">&rarr;</span>
+      <span class="ic">${ICON_TEAM}</span>
+      <span class="t">开发协作</span>
+      <p class="d">分工边界、三端实时进度与在线状态。开工前先在这里对齐，别重复造轮子。</p>
+      <span class="tag">/dev</span>
+    </a>
+    <a class="card g6" href="/docs">
+      <span class="arrow">&rarr;</span>
+      <span class="ic">${ICON_BOOK}</span>
+      <span class="t">开发文档</span>
+      <p class="d">接口契约、字段语义、六条硬约束和必踩的坑。两端 AI 都按这页写。</p>
+      <span class="tag">/docs</span>
+    </a>
     <a class="card g3" href="/health">
       <span class="arrow">&rarr;</span>
       <span class="ic">${ICON_PULSE}</span>
@@ -226,13 +246,16 @@ const CSS_A = `
 
   <div class="panel" id="api">
     <h2>接口速查 <em>x-sync-token 鉴权</em></h2>
-<pre><b>GET</b>    /health   <i>&rarr; {ok, service, time}</i>
-<b>GET</b>    /list     <i>&rarr; {keys:[{name,size,version}]}</i>
-<b>GET</b>    /:key     <i>&rarr; 原样返回值 · ETag 缓存</i>
-<b>HEAD</b>   /:key     <i>&rarr; 只取 version / 大小</i>
-<b>PUT</b>    /:key     <i>&rarr; 写入 · 值不变则版本不涨</i>
-<b>DELETE</b> /:key     <i>&rarr; 删除 · 返回 {deleted}</i></pre>
-    <p class="note">写与删需带 <code>x-sync-token</code> 请求头，读公开。以 <code>@</code> 开头的内部键不会出现在 /list 里。</p>
+<pre><b>GET</b>    /health    <i>&rarr; {ok, service, time, histRetentionDays}</i>
+<b>GET</b>    /list      <i>&rarr; {keys:[{key, updatedAt}]} 上限 100</i>
+<b>GET</b>    /:key      <i>&rarr; {key, value, version, updatedAt}</i>
+<b>HEAD</b>   /:key      <i>&rarr; 只取 x-sync-version / x-sync-updated</i>
+<b>PUT</b>    /:key      <i>&rarr; 写入 · 同值不落采样点</i>
+<b>DELETE</b> /:key      <i>&rarr; 删除 · 同时清理 @hist:</i>
+<b>GET</b>    /dash/hist <i>&rarr; 只读历史（原生端）· 保留 7 天</i>
+<b>GET</b>    /status    <i>&rarr; 三端状态聚合 · token 或 cookie</i>
+<i>页面</i>   /dev · /docs <i>&rarr; 协作台（需登录）· 开发文档（公开）</i></pre>
+    <p class="note">除 <code>/health</code> 与公开页面外，读写删都需带 <code>x-sync-token</code>。以 <code>@</code> 开头的内部键不会出现在 /list 里。</p>
   </div>
 
 </div>

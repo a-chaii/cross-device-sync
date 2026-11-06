@@ -24,6 +24,7 @@
 
 import intro from './intro';
 import hub from './hub';
+import { devPage, docsPage, statusData } from './dev';
 import {
   appendHist,
   check,
@@ -108,6 +109,21 @@ export default {
     // 项目介绍页（WatchSync 落地页，纯前端静态，无需鉴权）
     if ((path === '/intro' || path === '/intro/') && (method === 'GET' || method === 'HEAD')) {
       return intro.fetch(request);
+    }
+    // 开发文档：公开。两端 AI 用 curl 就能取到契约，不依赖 git 权限
+    if ((path === '/docs' || path === '/docs/') && (method === 'GET' || method === 'HEAD')) {
+      return docsPage();
+    }
+    // 开发协作台：含进度信息，与看板共用 cookie 鉴权
+    if ((path === '/dev' || path === '/dev/') && (method === 'GET' || method === 'HEAD')) {
+      return (await check(request, env)) ? devPage() : loginPage();
+    }
+    // 三端状态聚合：token 或看板 cookie 任一通过即可（AI 用 token，浏览器用 cookie）
+    if (path === '/status' && method === 'GET') {
+      if (!authorized(request, env) && !(await check(request, env))) {
+        return json({ error: 'unauthorized', hint: '带 x-sync-token，或先访问 /dash 登录' }, 401, cors);
+      }
+      return json(await statusData(env), 200, cors);
     }
 
     if (path === '/health' && method === 'GET') {

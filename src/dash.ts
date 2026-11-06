@@ -117,6 +117,9 @@ export async function appendHist(
   version: number,
 ): Promise<void> {
   try {
+    // 非设备键（如 status/*）不写历史：省一半 KV 写，也避免长出没人看的 @hist: 垃圾键。
+    // 历史采样只为「设备电量」服务，见 isDeviceKey()。
+    if (!isDeviceKey(key)) return;
     const hk = histKey(key);
     const prev = (await env.SYNC_KV.get(hk, 'json')) as Sample[] | null;
     const arr: Sample[] = Array.isArray(prev) ? prev.slice() : [];
