@@ -165,6 +165,7 @@ interface Sample {
 - `retentionMs` 让客户端自证契约版本，不必硬编码 7 天。
 - 错误：`400 invalid_key`（缺 key / key 以 `@` 开头）、`401 unauthorized`。
 - **CORS**：v11.1 起该端点（含 400/401 错误响应）都会合并 `cors` 头，Web 端跨域可直接调；未加之前只有原生端能用。
+- **客户端形态**：iOS App + 桌面 Widget 均为**只读消费者**（只用 `GET`），规格见 `docs/IOS_PROMPT.md`。
 
 ### 4.5 状态码
 
@@ -276,6 +277,7 @@ node /tmp/db3/test_ttl.mjs
 
 | 版本 | 变更 |
 |---|---|
+| docs | iOS 端定位改为**纯只读接收端**（不上报），新增 Widget 规格（小=电量 / 中=预计续航 / 大=+24h 曲线）；需求文档同步裁定 D1–D4 不再调整。**本次无代码改动** |
 | v11.1 `21674dd` | `/dash/hist` 响应合并 CORS 头（含错误响应），Web 端跨域可直接调；补路由级测试 23 条 |
 | v11 `3c3021b` | 历史改为 7 天时间窗（`HIST_TTL_MS`）；新增 `/dash/hist`；DELETE 清理 `@hist:`；`/health` 暴露保留窗口；前端默认近 7 天、移除 30 天选项 |
 | v10 `67a30fc` | 采样日志显示采集端模块版本（`mv`/`m`），表格新增「模块」列，`colspan` 8 |

@@ -1,204 +1,287 @@
-# iOS 端开发提示词
+# iOS 端开发提示词（只读接收端 + 桌面小组件）
 
-> 用法：把下面的 **【提示词正文】** 整段复制给 iOS 开发 AI / 开发者。它自带全部后端契约，不需要再读别的文件。
-> 相关文档：`docs/TECH.md`（服务端实现）、`docs/REQUIREMENTS.md`（需求与约束）
+> 用法：把下面 **【提示词正文】** 整段复制给 iOS 开发 AI / 开发者。它自带全部后端契约，无需再读别的文件。
+> 相关文档：`docs/TECH.md`（服务端实现）、`docs/REQUIREMENTS.md`（需求与硬约束）
+> 版本：对应服务端 v11.1（`/dash/hist` 已上线 CORS，纯 GET 即可用）
 
 ---
 
 ## 【提示词正文】
 
-你是一名资深 iOS 工程师。请为我实现一个 **WatchSync 电量看板 iOS 客户端**。
+你是一名资深 iOS 工程师。请为我实现 **WatchSync 电量看板 iOS 客户端 + 桌面小组件（Widget）**。
 
-### 0. 一句话目标
+### 0. 定位与铁律（先看这条，决定整个架构）
 
-做一个 iOS App：**能查看我所有设备（Android 手表/耳机/手机、iPhone）最近 7 天的电量曲线**，并**可选地**把本机 iPhone 电量上报到同一后端。后端是已有的 Cloudflare Worker，**不要改动后端，只做客户端**。
+**这个 App 是纯接收端（read-only），绝不上报数据。**
 
-### 1. 技术栈与工程要求
+- ✅ 允许的 HTTP 方法：**只有 `GET`**
+- ❌ 禁止调用 `PUT`、`POST`、`DELETE` —— 后端会拒绝无关紧要，但更严重的是会污染数据源（数据由 Android 端采集，本 App 一旦写入就会覆盖真相）
+- ❌ 不允许出现「上报本机电量」「同步我的 iPhone 电量」之类的功能或 UI 文案
+- ❌ 不要请求任何写入权限的 token 变体，就用同一个只读 token
 
-- Swift 6 / SwiftUI，最低 iOS 17，纯原生，不引第三方库（图表用系统 `Charts`）。
-- 架构：`View` + `@Observable ViewModel` + 一个 `APIClient`（`async/await` + `URLSession`）。不要引入重型架构框架。
-- 所有网络失败都要有可读错误，不要静默 catch 全部异常。
-- 代码注释用中文，变量名用英文。
-- 不写单元测试以外的花活；但 `APIClient` 的解码层要有单元测试（用 JSON fixture，不联网）。
+后端是已有的 Cloudflare Worker，**不要改动后端、不要新增接口**。
 
-### 2. 后端契约（务必严格照此实现，字段名一个都不能改）
+### 1. 一句话目标
 
-Base URL：`https://<你的-worker-域名>`（我会在 `Config.xcconfig` 里提供，变量名 `API_BASE_URL`）
+做一个 iOS App + Widget：**随时看到我所有设备（手表、耳机、Android 手机等，由 Android 端采集）最近 7 天的电量**，并在桌面小组件上不打开 App 就能看到：
 
-鉴权：所有 `/list`、`/:key`、`/dash/hist` 请求必须带请求头
+| 尺寸 | 内容 |
+|---|---|
+| 小号 `.systemSmall` | 各设备**当前电量**（最多 3 台，名称 + 百分比 + 充电图标） |
+| 中号 `.systemMedium` | 各设备**预计续航**（按放电速率推算「还能用多久」） |
+| 大号 `.systemLarge` | 中号内容 **+ 最近 24 小时电量曲线** |
+
+### 2. 技术栈与工程要求
+
+- Swift 6 / SwiftUI，最低 iOS 17，纯原生。Widget 用 **WidgetKit**。
+- 两个 target：`WatchSync`（App）+ `WatchSyncWidget`（Widget Extension），并配置 **App Group** 共享数据。
+- 图表：App 内可用系统 `Charts`；**Widget 内不要用 Charts**，用 `Canvas` / `Path` 自绘 sparkline（Widget 渲染预算紧、Charts 易踩渲染问题）。
+- 架构：`View` + `@Observable ViewModel` + `APIClient`（`async/await` + `URLSession`）；共享层 `SharedStore`（App Group 读写）供 App 与 Widget 复用。
+- 注释用中文，标识符用英文。
+
+### 3. 后端契约（严格照抄，字段名一个都不能改）
+
+Base URL：`https://<你的-worker-域名>`（从 `Config.xcconfig` 的 `API_BASE_URL` 注入）
+
+鉴权头（**所有**请求都要带）：
 ```
 x-sync-token: <SYNC_TOKEN>
 ```
-`SYNC_TOKEN` 从 `Config.xcconfig` 注入 → 生成到 `Info.plist` 或 Swift 常量。**绝对不要**把 token 明文写进 Swift 源码或提交进 git。
 
-#### 2.1 健康检查（不需要 token）
+#### 3.1 `GET /health`（唯一不需要 token 的接口）
+```json
+{"ok":true,"service":"cross-device-sync","time":"2026-11-06T04:00:00.000Z",
+ "histRetentionMs":604800000,"histRetentionDays":7}
 ```
-GET /health
-→ 200 {"ok":true,"service":"cross-device-sync","time":"2026-11-06T04:00:00.000Z",
-        "histRetentionMs":604800000,"histRetentionDays":7}
-```
-**用途：启动时调一次，把 `histRetentionMs` 存进内存，用于 UI 上标注「数据保留 X 天」，不要硬编码 7。**
+用途：拿到 `histRetentionDays` 用于 UI 文案「数据保留 7 天」。**不要硬编码 7**。
 
-#### 2.2 列出所有键
+#### 3.2 `GET /list?prefix=`（列出所有键）
+```json
+{"prefix":"","cursor":null,
+ "keys":[{"key":"watch/battery","updatedAt":"2026-11-06T03:59:00.000Z"},
+         {"key":"ios/battery","updatedAt":"2026-11-06T03:58:00.000Z"}]}
 ```
-GET /list?prefix=<可选前缀>
-→ 200 {"prefix":"","cursor":null,
-        "keys":[{"key":"watch/battery","updatedAt":"2026-11-06T03:59:00.000Z"}, ...]}
-```
-- 最多返回 100 条，`cursor` 非 null 时表示还有下一页（本期可以不翻页，但要识别该字段）。
-- 服务端已过滤内部键，客户端**不需要**再过滤 `@`。
+- 上限 100 条；`cursor` 非 null 表示还有下一页（v1 可不翻页，但要识别）。
+- 服务端已过滤内部键（`@` 开头），客户端**不需要**再过滤。
 
-#### 2.3 读单条最新值
+#### 3.3 `GET /<key>`（单条最新值）
+```json
+{"key":"watch/battery","value":{"level":64,"charging":0,"name":"手表","src":"hook","mv":"1.4.2"},
+ "version":9,"updatedAt":"2026-11-06T03:59:00.000Z"}
 ```
-GET /<key>
-→ 200 {"key":"watch/battery","value":{...},"version":9,"updatedAt":"2026-11-06T03:59:00.000Z"}
-→ 404 {"error":"not_found","key":"watch/battery"}
-```
-响应头会带 `x-sync-version`、`x-sync-updated`（客户端可用，也可忽略，body 里都有）。
+- 404 → `{"error":"not_found","key":"..."}`，视为「该设备暂无数据」。
+- 响应头带 `x-sync-version` / `x-sync-updated`，body 里都有，可忽略头。
 
-#### 2.4 读历史（核心接口）
-```
-GET /dash/hist?key=<key>&range=<毫秒，0 或省略=保留窗口内全部>
-→ 200 {
-    "key": "watch/battery",
-    "label": "手表",
-    "hist": [
-      {"t": 1762405140000, "l": 66, "c": 0, "v": 9, "s": "hook", "m": "1.4.2"},
-      {"t": 1762408740000, "l": 65, "c": 0, "v": 10}
-    ],
-    "total": 2,
-    "now": 1762408800000,
-    "retentionMs": 604800000
-  }
-```
+#### 3.4 `GET /dash/hist?key=<key>&range=<毫秒>`（历史，核心）
+`range` 取值：`3600000`(1h) / `10800000`(3h) / `21600000`(6h) / `86400000`(24h) / `259200000`(3天) / `604800000`(7天) / `0`(保留窗口内全部)
 
-**字段语义（务必理解，否则图表会画错）：**
+```json
+{
+  "key": "watch/battery",
+  "label": "手表",
+  "hist": [
+    {"t": 1762405140000, "l": 66, "c": 0, "v": 9, "s": "hook", "m": "1.4.2"},
+    {"t": 1762408740000, "l": 65, "c": 0, "v": 10}
+  ],
+  "total": 2,
+  "now": 1762408800000,
+  "retentionMs": 604800000
+}
+```
 
 | 字段 | 含义 |
 |---|---|
 | `t` | 采样时间，**毫秒** epoch |
-| `l` | `level`，电量百分比 0–100；可能为 `null`（上报没带） |
-| `c` | `charging`，`1` 充电中 / `0` 未充电；可能为 `null` |
-| `v` | 服务端记录版本号，仅用于调试 |
-| `s` | 数据来源标识，可选 |
-| `m` | 采集端模块版本，可选 |
+| `l` | 电量 0–100，**可能为 `null`** |
+| `c` | `1` 充电中 / `0` 未充电，**可能为 `null`** |
+| `v` | 服务端版本号（调试用，不要显示给用户） |
+| `s` / `m` | 数据源标识 / 采集端模块版本，可选 |
 
-**关键行为（都是服务端已实现的，客户端别重复实现、也别以为是 bug）：**
-1. `hist` **已按时间升序**排列，且**已按 `range` 和 7 天窗口双重裁剪**。客户端不需要再过滤时间。
-2. `range` 传大于 7 天的值会被服务端夹到 7 天；`range=0` 表示「保留窗口内全部」（最多 7 天），**不是**「有史以来全部」。
-3. **值未变化时不会产生新点**：如果 `level` 和 `charging` 都没变，服务端跳过该采样。所以曲线会长时间是「平台 + 稀疏点」，**这不是丢数据**。UI 上要对「最后一点距 now 超过 2 小时」做灰显提示（例如「数据未更新，可能设备未变化或未联网」）。
-4. `key` 不存在时返回 `200` + `hist: []`，**不是 404**。请用空状态 UI 区分「这台设备没数据」和「请求失败」。
-5. `label` 是服务端给的设备显示名，直接用，不要自己按 key 拼。
+**必须理解的服务端行为（客户端不要再实现一遍，也别当 bug 报）：**
+1. `hist` 已**升序**，且已按 `range` 和 7 天窗口**双重裁剪**。客户端不要再过滤时间。
+2. `range` 超过 7 天会被夹到 7 天；`range=0` = 「保留窗口内全部」（最多 7 天），不是「有史以来」。
+3. **值没变就不会有新点**（`level` 与 `charging` 同时相同则跳过采样）。所以曲线是「稀疏点 + 长平台」，**这不是丢数据**。UI 上对「最后一点距 now > 2 小时」灰显提示「数据未更新」。
+4. key 不存在返回 `200` + `hist: []`，**不是 404**。用空状态区分「无数据」与「请求失败」。
+5. `label` 是服务端给的设备名，直接用，不要自己按 key 拼。
+6. 只读端点无写入副作用，可放心高频调用（但仍要尊重 §7 的刷新节流）。
 
-#### 2.5 上报（可选功能，默认关闭）
+### 4. 数据共享层（App ↔ Widget）
+
+建 App Group：`group.com.yourteam.watchsync`（App 与 Widget 两个 target 都勾上）。
+
+**App Group 共享文件/Defaults 结构：**
+```json
+{
+  "savedAt": 1762408800000,
+  "health": {"retentionDays": 7},
+  "devices": [
+    {"key":"watch/battery","label":"手表","level":64,"charging":false,"updatedAt":"2026-11-06T03:59:00.000Z"}
+  ],
+  "hist": {
+    "watch/battery": [{"t":1762405140000,"l":66,"c":0}]
+  }
+}
 ```
-PUT /<key>
-Content-Type: application/json
-x-sync-token: <SYNC_TOKEN>
-body: {"value": {"level": 76, "charging": 1, "name": "iPhone", "src": "ios", "mv": "1.0.0", "ts": 1762408800000}}
-→ 200 {"key":"ios/battery","value":{...},"version":3,"updatedAt":"..."}
+- `devices`：列表页数据（App 每次刷新后写入）。
+- `hist`：**只存大号 Widget 需要的那几台设备的 24h 曲线**（默认 ≤4 台），不要把所有设备 7 天数据塞进去（App Group 有容量与性能成本）。
+- Widget 读不到网络时**必须**用这份缓存渲染，不能显示红字/空白。
+
+**Token 存哪：**
+- 首选 **Keychain** + Keychain Sharing（`keychain-access-groups` 含 App Group ID），App 与 Widget 都能读。
+- 若实现 Keychain Sharing 有阻碍，可退回 **App Group `UserDefaults`**（同设备沙盒内可行，但明文落盘，安全性略低）——**必须在 README 里写明这个取舍**。
+- 禁止把 token 硬编码进任何 Swift 文件；`Config.xcconfig` 不进 git，只提交 `Config.xcconfig.example`。
+
+### 5. Widget 实现要求（重点，别糊弄）
+
+#### 5.1 结构
+- `StaticConfiguration`（v1 不需要用户选设备；若你想做多实例选设备，可用 `AppIntentConfiguration`，属于加分项）。
+- 支持 `supportedFamilies: [.systemSmall, .systemMedium, .systemLarge]`。
+- `TimelineProvider` 三个方法都要实现：`placeholder`（返回假数据，秒出）、`getSnapshot`（用缓存，别联网）、`getTimeline`（可联网）。
+- 每个 entry 同时带上三种尺寸需要的数据，由 View 按 `widgetFamily` 分支渲染。
+
+#### 5.2 `getTimeline` 逻辑（照这个顺序写）
+1. 读 App Group 缓存 → 先用它构造 entry（保证**永远有东西可显示**）。
+2. 若 `savedAt` 距今 > 10 分钟：尝试联网刷新
+   - 超时 **6 秒**（Widget 时间预算紧，不要用 App 的 10 秒）
+   - 并发：`GET /health` + `GET /list` + 各设备 `GET /:key`（最多 6 台，同时最多 6 个请求）
+   - **只有大号组件需要** `GET /dash/hist?range=86400000`（最多 4 台）
+   - 任一步失败：**静默沿用缓存**，不要抛错给用户
+3. 成功则写回 App Group，并用新数据构造 entry。
+4. `return Timeline(entries: [entry], policy: .after(Date().addingTimeInterval(15 * 60)))`
+
+**刷新预算**：系统一天只给 Widget 有限次刷新（通常几十次）。15 分钟间隔是「请求」，实际由系统决定。**文案不要写「每分钟同步」**。
+
+#### 5.3 三种尺寸的具体布局
+
+**小号（最省空间，只回答「现在多少电」）**
 ```
-- `value` 里服务端只认这几个名字：`level`、`charging`、`src`、`mv`、`ts`、`name`。其它字段会被忽略。
-- `ts` **必须是毫秒**（>1e12）。传秒级（如 1762408800）会被判定不合理，服务端回退用自己的时间——曲线时间轴就偏了。
-- body 上限 24 KB，超了返回 `413`。
-- 可选并发控制：请求头带 `x-sync-base-version: <上次 GET 到的 version>`，不匹配时返回 `409` 并回带 `current`。**本期单向覆盖，不需要传这个头。**
+┌─────────────────┐
+│ 设备电量         │
+│ 手表      64% ⚡ │
+│ 耳机      82%   │
+│ 手机      37%   │
+│ 2 分钟前更新     │
+└─────────────────┘
+```
+- 最多 3 台，按 `updatedAt` 倒序。
+- 每行：名称（`label`，超长截断）+ 电量数字（大字号 `%`）+ 充电时显示 `bolt.fill`。
+- 电量用颜色分层：`>50` 绿、`20–50` 橙、`<20` 红（用语义色，别用死色值）。
+- 底部一行小字相对时间（`Text(date, style: .relative)`）。
+- `level == nil` 显示 `—`，不要显示 0。
 
-### 3. 能力边界（先看清楚再动手，别做做不到的事）
+**中号（回答「还能用多久」）**
+```
+┌───────────────────────────────────────┐
+│ 预计续航                                │
+│ 手表  64%   约 1 天 3 小时    ⚡充电中   │
+│ 耳机  82%   约 8 小时 30 分             │
+│ 手机  37%   数据不足                    │
+└───────────────────────────────────────┘
+```
+- 每台一行三列：名称 | 当前电量 | **预计续航**。
+- 预计续航算法见 §6，**必须按公式实现**，不要自己发明。
+- 状态优先级：`充电中` > `数据不足` > `电量稳定（几乎不耗电）` > 估算值。
 
-- ✅ **能读**：本机 iPhone 电量 —— `UIDevice.current.isBatteryMonitoringEnabled = true`，然后 `batteryLevel`（0.0–1.0，**-1 表示未知，必须处理**）× 100 取整；`batteryState` 映射为 `charging`：`.charging` / `.full` → `1`，`.uncharging` / `.unknown` → `0`。
-- ✅ **能读**：后端里的所有设备记录（手表、耳机等，由 Android 端上报）。
-- ❌ **不能读**：AirPods 的电量（Apple 私有协议，无公开 API）。
-- ⚠️ **不保证能读**：其它蓝牙设备电量 —— 只有实现标准 BLE Battery Service（UUID `0x180F`）的设备才可读。**本期不做**，不要写 CoreBluetooth 扫描逻辑。
-- ❌ **不要**内置看板密码、不要实现 WebView 登录、不要爬 `/dash` 页面。
+**大号（中号内容 + 曲线）**
+```
+┌───────────────────────────────────────┐
+│ 预计续航（同中号，最多 4 行）             │
+├───────────────────────────────────────┤
+│ 手表 · 最近 24 小时                      │
+│   ╱╲    ╱╲___                          │
+│  ╱  ╲__╱     ╲___                      │
+│ 40% ─────────────── 100%               │
+├───────────────────────────────────────┤
+│ 手机 · 最近 24 小时（同上）               │
+└───────────────────────────────────────┘
+```
+- 曲线：`Canvas` 或 `Path` 自绘，连续折线 + 轻微渐变填充。
+- **必须处理**：`l == nil` 的点断开（不连线）；只有一个点时不画线，画一个圆点。
+- 充电区段（`c == 1`）在曲线下方画一条淡色横带或给曲线段换色（二选一，别都做）。
+- 曲线容器固定高度（如 70pt），Y 轴不必画刻度，但要在左下角标最小值、右上角标最大值，否则看不出量级。
+- 4 台设备放不下时截断，末尾显示「+N 台」。
 
-### 4. 上报策略（启用时）
+#### 5.4 其他 Widget 细节
+- 点击组件用 `widgetURL` 深链到 App 的设备详情页（`.small` 只能整块跳一个 URL，跳到第一台设备）。
+- App 在前台刷新成功后调用 `WidgetCenter.shared.reloadAllTimelines()`，让组件立刻更新。
+- 支持深色模式；支持 `containerBackground`（iOS 17 必须设置，否则组件会报错或显示异常）。
+- 提供 `.redacted(reason: .placeholder)` 友好的占位数据。
 
-- 触发时机：App 进入前台、`scenePhase` 变 `.active`、以及后台刷新回调时各检查一次。
-- **变化阈值**：`level` 与上次成功上报相比变化 ≥ 1 个百分点**或** `charging` 状态翻转，才发请求；否则跳过（省配额，且服务端本来也会去重）。
-- 上报 key 固定为 `ios/battery`（服务端会把它识别为设备键，展示名取 `value.name`，所以 `name` 传 `"iPhone"` 或机型名）。
-- 失败重试：指数退避，最多 3 次（间隔 2s / 8s / 30s）；`401` **不重试**（立刻提示「token 无效」），`413` 不重试（说明客户端有 bug）。
-- 首次上报前先 `GET /ios/battery`；`404` 属正常（第一次），不用报错。
+### 6. 预计续航算法（必须完全按此实现）
 
-### 5. 后台刷新（必须如实实现，不许画饼）
+输入：某设备的 `hist`（升序，含 `l` 与 `c`）。
 
-- 用 `BGAppRefreshTask`：`BGTaskSchedulerPermittedIdentifiers` 加 identifier（如 `com.example.watchsync.refresh`），在 `Info.plist` 声明 `UIBackgroundModes: fetch`。
-- 注册 `BGTaskScheduler.shared.register(...)` 要在 `didFinishLaunching` 里、启动完成前。
-- **系统不保证时机**：`earliestBeginDate` 建议 `Date().addingTimeInterval(15*60)`，实际可能几小时才跑一次、也可能不跑。**UI 上不要说「每分钟同步」**这类做不到的话。
-- 任务结束必须 `task.setTaskCompleted(success:)`，并**在结束时重新 schedule 下一次**，否则后台刷新会永久停止。
-- 后台任务里有时间预算（约 30 秒），超时要主动取消。
+```
+1) 过滤掉 l == nil 的点（无电量无法估算）
+2) 过滤掉 c == 1 的点（充电段不是放电，会算出负斜率）
+3) 取时间窗口 W：
+   - 优先用最近 6 小时内的点
+   - 若点数 < 3，退回到最近 24 小时
+   - 若仍 < 3，或首末点时间跨度 < 1 小时 → 返回「数据不足」
+4) slope = (首点.l - 末点.l) / ((末点.t - 首点.t) / 3600000)    // 单位：%/小时，正值=放电
+5) 若 slope <= 0.2  → 返回「电量稳定」（几乎不耗电，不估算，避免除零/爆表）
+6) 剩余小时 = 当前电量 / slope
+7) 钳制：> 240 小时 → 显示「超过 10 天」；<= 0 → 「即将关机」
+8) 展示：>= 24h 显示「X 天 Y 小时」；否则「X 小时 Y 分」，分钟取整到 5 的倍数
+特殊情况：
+- 最新一个点的 c == 1 → 显示「充电中」，不估算
+- 没有任何 l 数据 → 显示「未知」
+- 设备最后更新时间 > 2 小时 → 估算值后加 `*` 并有灰显说明「数据较旧」
+```
 
-### 6. UI 要求
+**这是粗估，不是承诺。** 在 README 与 App 内都要有一句「预计续航按最近放电速率线性外推，仅供参考」。
 
-三个界面即可，别过度设计：
+### 7. App 端界面（三屏即可）
 
-1. **设备列表页**
-   - 启动：`GET /health` → `GET /list` → 对每个键 `GET /<key>` 取最新值（并发，最多同时 6 个）。
-   - 每行：设备名（`value.name` 或 key）、当前电量（大字号）、充电状态图标、最后更新时间（相对时间，如「3 分钟前」）。
-   - 按 `updatedAt` 倒序。空列表给空状态提示。
+1. **设备列表**：`/health` → `/list` → 并发 `GET /:key`。每行：名称、当前电量、充电图标、相对更新时间。按 `updatedAt` 倒序。下拉刷新。空态/离线态要设计。
+2. **设备详情**：`GET /dash/hist`。顶部当前值 + 「数据保留 7 天」（用 `/health`）；中部 `Charts` 折线（`l==nil` 断开、充电段背景色）；时间选择器 `1h/3h/6h/24h/3d/7d/全部`，**没有 30 天**；下部采样点表格（时间、电量、充电状态、`m` 模块版本）。
+3. **设置**：后端地址（只读显示）、保留天数、token 输入（写 Keychain）、「立即刷新」按钮、上次刷新时间与结果、一句 App 说明「本应用仅读取数据，不会修改任何设备状态」。
 
-2. **设备详情页**
-   - `GET /dash/hist?key=<key>&range=<选中值>`。
-   - 顶部：当前电量 + 充电状态 + 「数据保留 7 天」的说明（用 `/health` 拿到的 `histRetentionDays`）。
-   - 中部：`Charts` 折线图，X 轴时间、Y 轴 0–100。**必须做**：`l == nil` 的点跳过不画（用 `LineMark` 逐点，缺失处断开）；充电区段可用 `RectangleMark` 或背景色标注。
-   - 时间范围选择器：`1h / 3h / 6h / 24h / 3d / 7d / 全部`（与 Web 看板一致，对应 range = 3600000 / 10800000 / 21600000 / 86400000 / 259200000 / 604800000 / 0）。**不要提供 30 天选项**（服务端也拿不到）。
-   - 下部：采样点表格（时间、电量、充电、`m` 模块版本），支持按时间倒序。
+### 8. 错误处理与节流
 
-3. **设置页**
-   - 显示后端地址、保留天数（来自 `/health`）、「上报本机电量」开关（默认关）、「立即上报」按钮、上次上报结果/错误。
-   - token 输入框（可选，方便调试）：写入 Keychain，不写入 `UserDefaults`。
+| 情况 | 行为 |
+|---|---|
+| 401 | 提示「token 无效或已更换」，跳设置页；**不重试** |
+| 404（`GET /:key`） | 该设备视为「暂无数据」，不报错 |
+| 400 `invalid_key` | 提示「设备键非法」，不重试 |
+| 429 | 读 `Retry-After`，退避后最多重试 1 次 |
+| 5xx / 网络失败 | 展示缓存 + 「离线」标记；指数退避最多 3 次（2s/8s/30s） |
+| 所有错误 | **Widget 一律静默用缓存**，绝不在组件上显示报错文本 |
 
-### 7. 安全要求（硬性）
-
-- `SYNC_TOKEN` 存 **Keychain**（`kSecClassGenericPassword`，`kSecAttrAccessibleAfterFirstUnlock`），App 启动时读取。
-- 允许通过 `Config.xcconfig` 注入默认 token（个人自用），但**该文件不进 git**（`.gitignore` 里排除），仓库里只提交 `Config.xcconfig.example`。
-- 禁止打印 token 到日志；错误日志里对 token 做 `***` 屏蔽。
-- 禁止 `NSAllowsArbitraryLoads`；只走 HTTPS。
-- 不实现任何 `DELETE` 调用（服务端会连历史一起删，误删不可恢复）。
-
-### 8. 错误处理矩阵
-
-| 状态码 | 含义 | 客户端行为 |
-|---|---|---|
-| 200 | 成功 | 正常渲染 |
-| 400 | `invalid_key`（key 含非法字符或以 `@` 开头） | 提示「设备键非法」，不重试 |
-| 401 | token 错误/缺失 | 提示去设置页填 token，不重试 |
-| 404 | 键不存在（仅 `GET /:key`） | 视为「该设备暂无数据」 |
-| 409 | 版本冲突（仅带 `x-sync-base-version` 时） | 本期不会出现；若出现则重新 GET 后重试一次 |
-| 413 | body > 24 KB | 提示「上报数据过大」，不重试 |
-| 429 | 限流 | 读 `Retry-After`（若有），退避后重试最多 1 次 |
-| 5xx | 服务端错误 | 指数退避重试最多 3 次 |
-| 网络失败 | 无网/超时 | 展示缓存数据 + 「离线」标记；有网后自动刷新 |
-
-超时：请求 10 秒。
+- App 请求超时 10 秒；Widget 请求超时 6 秒。
+- 前台刷新最小间隔 60 秒（防止用户狂下拉把配额打光）。
 
 ### 9. 验收标准（我会逐条验）
 
-1. 首次启动、token 正确时，列表页能显示后端里已有的设备（例如「手表」）和当前电量。
-2. 点进详情，默认展示 **近 7 天**曲线；切换到 1h/24h 数据量随之变化；**没有 30 天选项**。
-3. 构造一个只有 7 天内数据的场景，图表 X 轴不会出现 7 天之前的点。
-4. 把某台设备的最后更新时间改早（或用长时间未更新的真实设备），列表/详情有「数据陈旧」的灰显提示。
-5. 拔掉网络，App 不崩溃，展示「离线」并可下拉重试；恢复网络后自动刷新。
-6. token 改成错的 → 明确提示「token 无效」，**不无限重试**。
-7. 打开「上报本机电量」→ 电量变化 1% 后能上报成功，且 Web 看板出现 `ios/battery` 这台设备。
-8. 后台刷新：`BGTaskScheduler` 注册成功（模拟器可用 `_simulateLaunchForTaskWithIdentifier` 验证）；任务完成后重新 schedule，不出现「只跑一次就没了」。
-9. 仓库里 `grep` 不到明文 token。
+1. 首次启动、token 正确 → 列表页显示后端已有设备（如「手表」）与当前电量。
+2. 详情页默认 **近 7 天**曲线；切 1h/24h 数据量变化；**没有 30 天选项**。
+3. 小号组件：显示最多 3 台设备电量，数字与 App 一致；充电设备有闪电图标。
+4. 中号组件：有足够历史时显示「约 X 天 Y 小时」；历史点 < 3 时显示「数据不足」；正在充电的设备显示「充电中」。
+5. 大号组件：出现 24h 曲线；把某设备历史造成只有 1 个点，曲线不崩（画点不画线）。
+6. **断网后**三种尺寸都仍显示上次数据，且不出现报错文本。
+7. App 前台刷新后，`WidgetCenter.reloadAllTimelines()` 生效，组件在几秒内更新。
+8. 组件放置 1 小时以上，仍会自动刷新（不需要打开 App）。
+9. 全局搜索代码：**没有 `PUT`/`POST`/`DELETE` 调用**，没有「上报」类 UI。
+10. 仓库 `grep` 不到明文 token；`Config.xcconfig` 已被 `.gitignore` 排除。
 
 ### 10. 交付物
 
-1. 可编译运行的 Xcode 工程（iOS 17+，SwiftUI）。
-2. `Config.xcconfig.example`（含 `API_BASE_URL`、`SYNC_TOKEN` 占位符）+ 更新后的 `.gitignore`。
-3. `README-iOS.md`：如何配置 token、如何验证后台刷新、已知限制（读不到 AirPods 电量、后台刷新不保证时机）。
-4. `APIClient` 解码层的单元测试（用真实响应样例做 fixture，包含 `hist: []`、`l: null`、`charging: null` 三种边界）。
+1. 可编译运行的 Xcode 工程（App + Widget 两个 target，含 App Group 配置）。
+2. `Config.xcconfig.example`（`API_BASE_URL`、`SYNC_TOKEN` 占位）+ 更新后的 `.gitignore`。
+3. `README-iOS.md`：token 配置、App Group 与 Keychain Sharing 设置步骤、Widget 刷新机制与限制、预计续航算法说明与免责声明、已知限制。
+4. `APIClient` 解码层单元测试（fixture 覆盖：`hist: []`、`l: null`、`c: null`、单点历史、跨 7 天边界）。
+5. `DurationEstimator` 的单元测试（用固定历史点验证 §6 的 8 个分支）。
 
 ### 11. 禁止事项（违反即返工）
 
-- ❌ 不要改后端代码，不要新增接口。
-- ❌ 不要内置 `DASH_PWD`、不要走 WebView 登录、不要抓 `/dash` 页面。
-- ❌ 不要自己在前端再裁剪一次 7 天窗口（服务端已裁剪，重复裁剪只会在时钟偏移时误删数据）。
-- ❌ 不要因为「曲线有长时间平台」就以为丢数据、去补点或伪造采样。
-- ❌ 不要把 `range` 传大于 604800000 的值并期待拿到更多数据。
-- ❌ 不要承诺「实时同步」「每分钟刷新」这类系统不允许的能力。
-- ❌ 不要实现 `DELETE`。
+- ❌ 任何写操作（`PUT`/`POST`/`DELETE`）、任何「上报电量」功能。
+- ❌ 内置 `DASH_PWD`、走 WebView 登录、抓 `/dash` 页面。
+- ❌ 客户端再裁一次 7 天窗口（服务端已裁，重复裁只会在时钟偏移时误删）。
+- ❌ 因为「曲线长时间平台」就补点或伪造采样。
+- ❌ `range` 传大于 `604800000` 并期待更多数据。
+- ❌ 在 Widget 里用 Swift Charts（改用 Canvas/Path）。
+- ❌ 承诺「实时」「每分钟同步」这类系统不允许的能力。
+- ❌ 在 Widget 上显示错误文本/红色叹号（只能用缓存或空态）。
 
 ---
 
@@ -206,7 +289,8 @@ body: {"value": {"level": 76, "charging": 1, "name": "iPhone", "src": "ios", "mv
 
 | 事项 | 说明 |
 |---|---|
-| 阻塞点：token 分发 | 服务端目前只有单个 `SYNC_TOKEN`。个人自用、不分发 → `.xcconfig` 注入够用；若要上架/分发，需先做「设备级 token」，属后端新需求（见 `REQUIREMENTS.md` §7-D2） |
-| `ios/battery` 键 | 满足服务端设备键规则 `^[a-z][a-z0-9_-]{0,20}/battery$`，会被看板当设备显示，展示名取 `value.name` |
-| 服务端部署状态 | 截至本提示词编写时，v11 改动**仅在本地仓库**（`3c3021b`、`21674dd`），线上仍是 v10。**iOS 联调前必须先 `npx wrangler deploy`**，否则 `/dash/hist` 会 404 |
-| 联调自检 | `curl -H "x-sync-token: $TOKEN" "$BASE/dash/hist?key=watch/battery&range=0"` 能返回 JSON，就说明后端就绪 |
+| 定位已锁定为只读 | 需求变更已确认：iOS 不上报，只读。因此**不需要**设备级 token 那套东西，单 `SYNC_TOKEN` 只读使用即可（但它仍能写，所以不要外传） |
+| 需要的键 | 只读 App 会自动发现 `/list` 里的所有键；`watch/battery`、`dev/<hex>`、`xxx/battery` 都会显示为设备 |
+| 小组件显示哪几台 | v1 按 `updatedAt` 倒序取前 3（小号）/ 前 4（中大号）。若你想要指定设备，再说，我加 `AppIntentConfiguration` |
+| 预计续航的坑 | 服务端「值不变不落点」会让平台期样本稀疏，所以算法强制要求 ≥3 点且跨度 ≥1 小时，否则直说「数据不足」——宁可少说，不要瞎算 |
+| 服务端就绪条件 | 必须已 `deploy`（v11.1）。自检：`curl -H "x-sync-token: $TOKEN" "$BASE/dash/hist?key=watch/battery&range=0"` 返回 JSON 即就绪 |
