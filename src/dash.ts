@@ -398,6 +398,17 @@ function dashHtml(): string {
   .legend b{display:inline-flex;align-items:center;gap:5px;cursor:pointer;color:var(--muted);
             font-weight:400;user-select:none;-webkit-user-select:none}
   .legend b.off{opacity:.35;text-decoration:line-through}
+  .legend .tag{font-size:.6rem;color:var(--muted);border:1px solid var(--line);
+               border-radius:6px;padding:0 4px;margin-left:2px}
+  .chk{display:inline-flex;align-items:center;gap:6px;font-size:.78rem;color:var(--muted);
+       cursor:pointer;user-select:none;-webkit-user-select:none;border:1px solid var(--line);
+       border-radius:9px;padding:6px 10px;background:rgba(18,24,38,.9)}
+  .chk input{accent-color:#3b82f6;margin:0;width:13px;height:13px}
+  .chk:hover{color:var(--txt)}
+  .statgrp{grid-column:1/-1;display:flex;align-items:center;gap:6px;font-size:.7rem;
+           color:var(--muted);border-bottom:1px solid rgba(120,150,255,.18);
+           padding-bottom:4px;margin-top:2px}
+  .statgrp i{width:7px;height:7px;border-radius:50%;flex:none}
   .legend i{width:8px;height:8px;border-radius:50%;display:inline-block}
   .stats{display:grid;grid-template-columns:1fr 1fr;gap:8px 12px;font-size:.74rem}
   .stats div{display:flex;justify-content:space-between;gap:8px;
@@ -441,6 +452,7 @@ function dashHtml(): string {
       <option value="2592000000">近 30 天</option>
       <option value="0">全部</option>
     </select>
+    <label class="chk" title="勾选后直接取服务器存储的全部历史，且不做「充满电后」裁剪"><input type="checkbox" id="chkAll">全部历史</label>
     <button class="ghost" id="btnReload" type="button">刷新</button>
   </header>
   <div class="cards" id="cards"></div>
@@ -482,7 +494,7 @@ function dashHtml(): string {
 (function(){
 'use strict';
 var COLOR=['#60a5fa','#34d399','#fbbf24','#f472b6','#22d3ee','#a78bfa','#fb923c','#4ade80'];
-var S={key:'*',range:86400000,data:null,hidden:{}};
+var S={key:'*',range:86400000,data:null,hidden:{},touched:{},all:false};
 function $(id){return document.getElementById(id);}
 function pad(n){return n<10?'0'+n:''+n;}
 function fmtT(t){var d=new Date(t);
@@ -502,6 +514,30 @@ function fmtDur(ms){
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){
   return c==='&'?'&amp;':c==='<'?'&lt;':c==='>'?'&gt;':'"';});}
 function isCh(s){return s.c===1||s.c===true;}
+function cyclePts(p){
+  if(!p||!p.length)return [];
+  var idx=-1,i;
+  for(i=p.length-1;i>=0;i--){if(p[i].l>=100){idx=i;break;}}
+  if(idx<0){for(i=p.length-1;i>=0;i--){if(isCh(p[i])){idx=i;break;}}}
+  if(idx<=0)return p;
+  return p.slice(idx);
+}
+function viewPts(hist){var p=ptsOf(hist);return S.all?p:cyclePts(p);}
+function sparseOf(p){
+  if(!p||p.length<2)return true;
+  var span=p[p.length-1].t-p[0].t;
+  if(span<7200000)return false;
+  var idle=0,i,g;
+  for(i=1;i<p.length;i++){g=p[i].t-p[i-1].t;if(g>5400000)idle+=g;}
+  return idle/span>0.55;
+}
+function sparseIt(it){return sparseOf(ptsOf(it.hist));}
+function shownIt(it){
+  if(S.hidden[it.key])return false;
+  if(sparseIt(it)&&!S.touched[it.key])return false;
+  return true;
+}
+function keyItem(k){var a=items();for(var i=0;i<a.length;i++){if(a[i].key===k)return a[i];}return null;}
 function ptsOf(hist){
   var a=[];
   if(!hist)return a;
@@ -607,7 +643,7 @@ function drawChart(series){
   g.font='11px ui-sans-serif,system-ui,sans-serif';
   if(!n){
     g.fillStyle='#8b98b3';g.textAlign='center';g.textBaseline='middle';
-    g.fillText('这个时间段还没有数据',W/2,H/2);
+    g.fillText('没有可绘制的设备（稀疏设备默认隐藏，点上方图例可强制显示）',W/2,H/2);
     return;
   }
   if(tmax-tmin<60000)tmax=tmin+60000;
@@ -690,7 +726,7 @@ function drawBars(its){
   var cnt=[],sam=[],i;
   for(i=0;i<24;i++){cnt.push(0);sam.push(0);}
   for(i=0;i<its.length;i++){
-    if(S.hidden[its[i].key])continue;
+    if(!shownIt(its[i]))continue;
     var p=ptsOf(its[i].hist);
     for(var b=0;b<p.length;b++){
       var idx=23-Math.floor((now-p[b].t)/3600000);
@@ -759,7 +795,7 @@ function renderCards(its){
   }
   var h='',i;
   for(i=0;i<its.length;i++){
-    var it=its[i],p=ptsOf(it.hist),st=statOf(p);
+    var it=its[i],p=ptsOf(it.hist),st=statOf(viewPts(it.hist));
     var cur=p.length?p[p.length-1]:null;
     var c24=null;
     if(cur){
@@ -795,9 +831,10 @@ function renderLegend(its){
   var h='',i;
   for(i=0;i<its.length;i++){
     var it=its[i];
-    var off=S.hidden[it.key]?' off':'';
+    var sp=sparseIt(it);
+    var off=shownIt(it)?'':' off';
     h+='<b class="lg'+off+'" data-k="'+esc(it.key)+'">'+
-       '<i style="background:'+COLOR[i%COLOR.length]+'"></i>'+esc(it.label)+'</b>';
+       '<i style="background:'+COLOR[i%COLOR.length]+'"></i>'+esc(it.label)+(sp?'<span class="tag" title="采样间隔过大、在线频率低，默认不画进总曲线也不计入统计">稀疏</span>':'')+'</b>';
   }
   box.innerHTML=h||'<b style="opacity:.5">无设备</b>';
   var bs=box.getElementsByTagName('b');
@@ -805,33 +842,40 @@ function renderLegend(its){
     bs[i].onclick=function(){
       var k=this.getAttribute('data-k');
       if(!k)return;
-      if(S.hidden[k])delete S.hidden[k];else S.hidden[k]=1;
+      var kit=keyItem(k);
+      S.touched[k]=1;
+      if(kit&&shownIt(kit))S.hidden[k]=1;else delete S.hidden[k];
       renderAll();
     };
   }
 }
 function renderStats(its){
-  var p=[],i;
-  for(i=0;i<its.length;i++){
-    if(S.hidden[its[i].key])continue;
-    p=p.concat(ptsOf(its[i].hist));
-  }
-  p.sort(function(a,b){return a.t-b.t;});
-  var st=statOf(p);
+  var h='',i,shown=0;
   function row(k,v){return '<div><span>'+k+'</span><b>'+v+'</b></div>';}
-  var h='';
-  h+=row('采样点',st.n);
-  h+=row('覆盖时长',fmtDur(st.span));
-  h+=row('掉电次数',st.drops.length);
-  h+=row('累计掉电',st.sum+'%');
-  h+=row('单次最大',st.maxOne?st.maxOne+'%':'—');
-  h+=row('平均掉电间隔',st.avgGap!==null?fmtDur(st.avgGap):'—');
-  h+=row('最长不掉电',st.maxGap!==null?fmtDur(st.maxGap):'—');
-  h+=row('掉电速率',st.rate!==null?st.rate.toFixed(2)+' %/h':'—');
-  h+=row('满电续航',st.life!==null?'约 '+fmtDur(st.life*3600000):'—');
-  h+=row('充电次数',st.charges);
-  $('stats').innerHTML=h;
-  $('statMeta').textContent=its.length>1?('合计 '+its.length+' 台设备'):'单设备';
+  for(i=0;i<its.length;i++){
+    var it=its[i];
+    if(!shownIt(it))continue;
+    shown++;
+    var p=viewPts(it.hist);
+    var st=statOf(p);
+    if(its.length>1){
+      h+='<div class="statgrp"><i style="background:'+COLOR[i%COLOR.length]+'"></i>'+
+         esc(it.label)+'<span style="opacity:.75;margin-left:auto">'+
+         (S.all?'全部采样':'充满电后')+' '+p.length+' 点</span></div>';
+    }
+    h+=row('采样点',st.n);
+    h+=row('覆盖时长',fmtDur(st.span));
+    h+=row('掉电次数',st.drops.length);
+    h+=row('累计掉电',st.sum+'%');
+    h+=row('单次最大',st.maxOne?st.maxOne+'%':'—');
+    h+=row('平均掉电间隔',st.avgGap!==null?fmtDur(st.avgGap):'—');
+    h+=row('最长不掉电',st.maxGap!==null?fmtDur(st.maxGap):'—');
+    h+=row('掉电速率',st.rate!==null?st.rate.toFixed(2)+' %/h':'—');
+    h+=row('满电续航',st.life!==null?'约 '+fmtDur(st.life*3600000):'—');
+    h+=row('充电次数',st.charges);
+  }
+  $('stats').innerHTML=h||'<div style="grid-column:1/-1;color:var(--muted)">没有可统计的设备（稀疏设备已默认排除，点图例可强制显示）</div>';
+  $('statMeta').textContent=shown>1?('按设备分别统计 · '+shown+' 台'):(shown===1?'单设备':'无设备');
 }
 function buildRows(hist){
   var p=ptsOf(hist),out=[],prev=null,lastDrop=null;
@@ -892,15 +936,20 @@ function renderAll(){
   for(i=0;i<its.length;i++){
     var it=its[i];
     tot+=ptsOf(it.hist).length;
-    if(S.hidden[it.key])continue;
-    series.push({key:it.key,label:it.label,color:COLOR[i%COLOR.length],pts:ptsOf(it.hist)});
+    if(!shownIt(it))continue;
+    series.push({key:it.key,label:it.label,color:COLOR[i%COLOR.length],pts:viewPts(it.hist)});
   }
   renderLegend(its);
   drawChart(series);
   drawBars(its);
   renderStats(its);
   renderTable(its);
-  $('chartMeta').textContent=(S.key==='*'?'全部设备':(d.label||S.key))+' · '+tot+' 个采样点';
+  var totShown=0;
+  for(i=0;i<series.length;i++)totShown+=series[i].pts.length;
+  $('chkAll').checked=S.all;
+  $('chartMeta').textContent=(S.key==='*'?'全部设备':(d.label||S.key))+' · '+
+    (S.all?'全部历史':'充满电后')+' '+totShown+' 个采样点'+
+    (tot>totShown?'（已隐藏 '+ (tot-totShown) +' 点）':'');
   var nw=new Date();
   $('meta').textContent='更新于 '+pad(nw.getHours())+':'+pad(nw.getMinutes())+':'+
     pad(nw.getSeconds())+' · '+(d.devices?d.devices.length:0)+' 个设备键 · '+
@@ -921,7 +970,7 @@ function fillKeySelect(){
   sel.value=S.key;
 }
 function load(){
-  var url='/dash/data?key='+encodeURIComponent(S.key)+'&range='+S.range;
+  var url='/dash/data?key='+encodeURIComponent(S.key)+'&range='+(S.all?0:S.range);
   fetch(url,{credentials:'same-origin',cache:'no-store'}).then(function(r){
     if(r.status===401){location.href='/dash';return null;}
     return r.json();
@@ -937,6 +986,7 @@ function load(){
 $('btnReload').onclick=function(){load();};
 $('selKey').onchange=function(){S.key=this.value;S.hidden={};load();};
 $('selRange').onchange=function(){S.range=+this.value;load();};
+$('chkAll').onchange=function(){S.all=this.checked;load();};
 var rt=null;
 window.addEventListener('resize',function(){
   clearTimeout(rt);
