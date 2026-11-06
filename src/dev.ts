@@ -334,13 +334,15 @@ const DOCS_HTML = `<!doctype html>
       <li><b>C4 原生端不内置看板密码</b>：用 <code>/dash/hist</code>，别碰 cookie 流程。</li>
       <li><b>C5 采样时间单调递增</b>：裁剪与绘图都依赖这条不变量。</li>
       <li><b>C6 同值不落点</b>：<code>level</code> 与 <code>charging</code> 都没变就不记点。</li>
+      <li><b>C7 采集端必须节流</b>：实测充电/锯齿时段采样间隔从 30 分钟塌到 0.5–2 分钟，蓝牙查询 + PUT 唤醒频率翻约 20 倍，直接表现为手机发热。轮询下限建议 5 分钟，且 <code>level</code> 与 <code>charging</code> 双未变时<b>整轮跳过、连蓝牙都别查</b>。</li>
     </ul>
   </div>
 
-  <div class="h2">5 · 五个必踩的坑</div>
+  <div class="h2">5 · 六个必踩的坑</div>
   <div class="panel">
     <ul class="doc">
       <li><b>曲线有长平台</b>：因为 C6，不是丢数据。闲置 &gt; 2 小时灰显「数据未更新」。</li>
+      <li><b><code>charging</code> 恒为 0</b>：<code>getBatteryList</code> 不给充电标志时，0 不等于「在放电」。服务端会用上升趋势推断出「推测充电」（青色），别把它当成真的放电状态。</li>
       <li><b><code>range=0</code></b>：「保留窗口内全部」（≤7 天），不是「有史以来」。</li>
       <li><b>键不存在</b>：<code>/dash/hist</code> 返回 <b>200 + 空数组</b>，不是 404。</li>
       <li><b>客户端二次裁剪 7 天</b>：服务端已裁，重复裁会在时钟偏移时误删。</li>

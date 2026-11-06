@@ -574,8 +574,53 @@ function fmtDur(ms){
   return dd+' 天'+(h%24?h%24+' 时':'');
 }
 function esc(s){return String(s==null?'':s).replace(/[&<>"]/g,function(c){
-  return c==='&'?'&amp;':c==='<'?'&lt;':c==='>'?'&gt;':'"';});}
+  return c==='&'?'&amp;':c==='<'?'&lt;':c==='>'?'&gt;':'&'+'quot;';});}
 function isCh(s){return s.c===1||s.c===true;}
+// 降噪参数：单次跳变阈值(%)。耳机左右耳取值交替会在此处表现为 ±10 的锯齿。
+var JUMP=8;
+/**
+ * 采样点标注（纯函数，不删数据）：
+ *   rep  = 设备自己上报「充电中」
+ *   jump = 孤立尖点（前后都相距 >= JUMP，而前后两点彼此接近）→ 判为噪声，不参与预测
+ *   inf  = 与上一个有效点相比小幅上升 → 推断为充电（设备不上报 charging 时的兜底）
+ */
+function annotate(p){
+  var out=[],i,q;
+  for(i=0;i<p.length;i++){
+    q=p[i];
+    out.push({t:q.t,l:q.l,c:q.c,v:q.v,m:q.m,s:q.s,rep:isCh(q),jump:false,inf:false});
+  }
+  for(i=1;i<out.length-1;i++){
+    var a=out[i-1],b=out[i],c=out[i+1];
+    // 孤立尖点：该点与前后都拉开 ≥ JUMP，而前后两点彼此几乎重合（容差 2）
+    if(Math.abs(b.l-a.l)>=JUMP&&Math.abs(b.l-c.l)>=JUMP&&Math.abs(a.l-c.l)<=2)b.jump=true;
+  }
+  var prev=null;
+  for(i=0;i<out.length;i++){
+    q=out[i];
+    if(q.jump)continue;
+    if(prev&&!q.rep){
+      // 只要相对上一个有效点上升，就认定是「充电 / 补登电量」段。
+      // 不设 JUMP 上限：从 50 直冲 100 的首个充点也是充电，不能混进掉电回归。
+      if(q.l-prev.l>=1)q.inf=true;
+    }
+    prev=q;
+  }
+  return out;
+}
+/** 最小二乘斜率 → 掉电速率(%/h，正数)；样本不足或趋势向上时返回 null，调用方回退到首末差分 */
+function olsRate(xs,ys){
+  var n=xs.length,i,mx=0,my=0;
+  if(n<3)return null;
+  for(i=0;i<n;i++){mx+=xs[i];my+=ys[i];}
+  mx/=n;my/=n;
+  var sxy=0,sxx=0;
+  for(i=0;i<n;i++){var dx=xs[i]-mx;sxy+=dx*(ys[i]-my);sxx+=dx*dx;}
+  if(!(sxx>0))return null;
+  var slope=sxy/sxx;
+  if(!isFinite(slope)||slope>=0)return null;
+  return -slope;
+}
 function cyclePts(p){
   if(!p||!p.length)return [];
   var idx=-1,i;
@@ -605,7 +650,7 @@ function ptsOf(hist){
   var a=[];
   if(!hist)return a;
   for(var i=0;i<hist.length;i++){if(typeof hist[i].l==='number')a.push(hist[i]);}
-  return a;
+  return annotate(a);   // 统一在这里做标注，下游（卡片/表格/统计）拿到的都是带 rep/inf/jump 的点
 }
 function items(){
   var d=S.data;
@@ -614,9 +659,11 @@ function items(){
   return [{key:d.key,label:d.label,hist:d.hist||[],rec:d.rec,total:d.total||0}];
 }
 function statOf(p){
-  var drops=[],charges=0,sum=0,prev=null,maxOne=0,i;
+  var drops=[],charges=0,sum=0,prev=null,maxOne=0,i,jumps=0,valid=0;
   for(i=0;i<p.length;i++){
     var q=p[i];
+    if(q.jump){jumps++;continue;}   // 孤立尖点：既不算掉电，也不算采样
+    valid++;
     if(prev){
       if(q.l<prev.l){
         var dd=prev.l-q.l;
@@ -624,7 +671,7 @@ function statOf(p){
         sum+=dd;
         if(dd>maxOne)maxOne=dd;
       }
-      if(isCh(q)&&!isCh(prev))charges++;
+      if((q.rep||q.inf)&&!(prev.rep||prev.inf))charges++;
     }
     prev=q;
   }
@@ -637,10 +684,26 @@ function statOf(p){
     if(gmin===null||gp<gmin)gmin=gp;
   }
   var avgGap=gaps.length?gsum/gaps.length:null;
-  var rate=(span>0&&sum>0)?sum/(span/3600000):null;
+  // 降噪主算法：只用「非跳变、两端都不在充电」的相邻段做最小二乘回归，
+  // 因为充电段(上升)混进时间轴会把速率摊薄，尖点会把速率放大。
+  var xs=[],ys=[],t0=p.length?p[0].t:0,pre=null;
+  for(i=0;i<p.length;i++){
+    var r=p[i];
+    if(r.jump){continue;}
+    var chg=(r.rep||r.inf);
+    if(pre&&!(pre.rep||pre.inf)&&!chg){
+      xs.push((r.t-t0)/3600000);ys.push(r.l);
+    }
+    pre=r;
+  }
+  var reg=olsRate(xs,ys);
+  // 回归不可用（样本<3 或整体在上升）时回退到首末差分
+  var rate=reg!==null?reg:((span>0&&sum>0)?sum/(span/3600000):null);
   var life=rate>0?100/rate:null;
-  return {n:p.length,drops:drops,sum:sum,charges:charges,span:span,
-          avgGap:avgGap,maxGap:gmax,minGap:gmin,rate:rate,life:life,maxOne:maxOne};
+  if(life!==null&&life>720)life=null;   // 超过 30 天的外推不可信，宁可不显示
+  return {n:p.length,valid:valid,jumps:jumps,reg:reg!==null,drops:drops,sum:sum,
+          charges:charges,span:span,avgGap:avgGap,maxGap:gmax,minGap:gmin,
+          rate:rate,life:life,maxOne:maxOne};
 }
 function adapt(cv,h){
   var dpr=window.devicePixelRatio||1;
@@ -756,16 +819,17 @@ function drawChart(series){
     g.stroke();
     for(j=0;j<p.length;j++){
       var q=p[j],qx=X(q.t),qy=Y(q.l);
-      var rc=isCh(q)?r+0.8:r;
+      var chq=isCh(q);
+      var rc=chq?r+0.8:r;
       g.beginPath();
       g.arc(qx,qy,rc,0,6.2832);
-      g.fillStyle=isCh(q)?'#34d399':se.color;
-      g.globalAlpha=isCh(q)?0.98:0.9;
+      g.fillStyle=chq?'#34d399':(q.inf?'#5eead4':se.color);
+      g.globalAlpha=chq?0.98:(q.inf?0.85:0.9);
       g.fill();
       g.globalAlpha=1;
       if(series.length<4){
         hp.push({x:qx,y:qy,html:'<b style="color:'+se.color+'">'+esc(se.label)+'</b><br>'+
-          fmtT(q.t)+'<br>电量 '+q.l+'%'+(isCh(q)?' · 充电中':'')+'<br>第 '+q.v+' 次写入'});
+          fmtT(q.t)+'<br>电量 '+q.l+'%'+(chq?' · 充电中':(q.inf?' · 推测充电':''))+'<br>第 '+q.v+' 次写入'});
       }
     }
     var lp=p[p.length-1];
@@ -887,12 +951,15 @@ function renderCards(its){
        '<div class="nm" title="'+esc(it.key)+'">'+esc(it.label)+'</div>'+
        '<div class="lv">'+(lv===null?'--':lv)+'<i>%</i></div>'+
        '<div class="mt">'+
-       (cur?('更新 '+fmtT(cur.t)+(isCh(cur)?' · <span style="color:#34d399">充电中</span>':''))
+       (cur?('更新 '+fmtT(cur.t)
+             +(cur.rep?' · <span style="color:#34d399">充电中</span>'
+               :(cur.inf?' · <span style="color:#5eead4" title="设备未上报充电标志，按电量上升趋势推断">推测充电</span>':'')))
            :'无数据')+
        (stale?'<br><span class="warn">值 '+fmtDur(stillH*3600000)+' 没变过，可能是未连接时的缓存值</span>':'')+
-       '<br>24h 变化 '+delta+' · 采样 '+p.length+' 条'+
+       '<br>24h 变化 '+delta+' · 采样 '+st.valid+' 条'
+         +(st.jumps?'<span title="前后都相差 ≥'+JUMP+'% 而前后两点彼此接近，判为孤立尖点，已排除在续航预测之外"> <span class="warn">剔噪 '+st.jumps+'</span></span>':'')+
        '<br>掉电 '+(st.rate!==null?st.rate.toFixed(2)+' %/h':'—')+
-       (st.life!==null?(' · 满电约 '+fmtDur(st.life*3600000)):'')+
+       (st.life!==null?(' · 满电约 '+fmtDur(st.life*3600000)+(st.reg?'':' <span class="warn" title="有效样本不足，退回首末差分">~</span>')):'')+
        '</div>'+
        '<div class="bar" style="width:'+Math.max(0,Math.min(100,lv===null?0:lv))+'%;'+
        'background:'+col+'"></div>'+
@@ -937,16 +1004,16 @@ function renderStats(its){
          esc(it.label)+'<span style="opacity:.75;margin-left:auto">'+
          (S.all?'全部采样':'充满电后')+' '+p.length+' 点</span></div>';
     }
-    h+=row('采样点',st.n);
+    h+=row('采样点',st.n+(st.jumps?'（剔噪 '+st.jumps+'）':''));
     h+=row('覆盖时长',fmtDur(st.span));
     h+=row('掉电次数',st.drops.length);
     h+=row('累计掉电',st.sum+'%');
     h+=row('单次最大',st.maxOne?st.maxOne+'%':'—');
     h+=row('平均掉电间隔',st.avgGap!==null?fmtDur(st.avgGap):'—');
     h+=row('最长不掉电',st.maxGap!==null?fmtDur(st.maxGap):'—');
-    h+=row('掉电速率',st.rate!==null?st.rate.toFixed(2)+' %/h':'—');
+    h+=row('掉电速率',st.rate!==null?st.rate.toFixed(2)+' %/h'+(st.reg?'<span class="mod">回归</span>':''):'—');
     h+=row('满电续航',st.life!==null?'约 '+fmtDur(st.life*3600000):'—');
-    h+=row('充电次数',st.charges);
+    h+=row('充电次数',st.charges+'<span class="mod">含推断</span>');
   }
   $('stats').innerHTML=h||'<div style="grid-column:1/-1;color:var(--muted)">没有可统计的设备（稀疏设备已默认排除，点图例可强制显示）</div>';
   $('statMeta').textContent=shown>1?('按设备分别统计 · '+shown+' 台'):(shown===1?'单设备':'无设备');
@@ -954,13 +1021,16 @@ function renderStats(its){
 function buildRows(hist){
   var p=ptsOf(hist),out=[],prev=null,lastDrop=null;
   for(var i=0;i<p.length;i++){
-    var q=p[i];
-    var d=prev?(q.l-prev.l):null;
-    var sd=lastDrop!==null?(q.t-lastDrop):null;
-    var isDrop=prev?(q.l<prev.l):false;
-    out.push({t:q.t,l:q.l,d:d,sd:sd,c:isCh(q),v:q.v,drop:isDrop,m:q.m});
+    var q=p[i],jump=!!q.jump;
+    var d=null,sd=null,isDrop=false;
+    if(!jump&&prev){
+      d=q.l-prev.l;
+      sd=lastDrop!==null?(q.t-lastDrop):null;
+      isDrop=q.l<prev.l;
+    }
+    out.push({t:q.t,l:q.l,d:d,sd:sd,c:!!q.rep,inf:!!q.inf,jump:jump,v:q.v,drop:isDrop,m:q.m});
     if(isDrop)lastDrop=q.t;
-    prev=q;
+    if(!jump)prev=q;   // 跳变点不更新基准，下一段的增量仍相对最后一个正常点算
   }
   return out;
 }
@@ -991,10 +1061,10 @@ function renderTable(its){
     h+='<tr>'+
        '<td class="num" title="'+esc(r.label)+'">'+
        '<span class="dot" style="background:'+dotc+'"></span>'+fmtT(r.t)+'</td>'+
-       '<td class="num">'+r.l+'%</td>'+
+       '<td class="num">'+r.l+'%'+(r.jump?'<span class="warn" title="孤立尖点：前后都相差 ≥'+JUMP+'%，已排除在续航预测之外">*</span>':'')+'</td>'+
        '<td class="num '+cls+'">'+dtxt+'</td>'+
        '<td class="num">'+(r.drop?'<b class="drop">'+sdtxt+'</b>':sdtxt)+'</td>'+
-       '<td>'+(r.c?'充电':'放电')+'</td>'+
+       '<td>'+(r.c?'充电':(r.inf?'<span style="color:#5eead4" title="设备未上报充电标志，按电量上升趋势推断">推测充电</span>':'放电'))+'</td>'+
        '<td class="num">'+(r.m?'<span class="mod">'+esc(String(r.m).replace(/^watchbat-/,''))+'</span>':'—')+'</td>'+
        '<td class="num" title="该记录第 '+r.v+' 次成功写入；不连续是因为去重跳过的采样也计入了计数">#'+r.v+'</td>'+
        '</tr>';
