@@ -12,6 +12,7 @@
  *   GET    /dash             -> 中转数据看板（密码登录，独立 cookie 鉴权）
  *   POST   /dash             -> 提交看板密码
  *   GET    /dash/data        -> 看板数据 JSON（需看板 cookie）
+ *   GET    /dash/hist?key=   -> 单设备历史 JSON（需 x-sync-token，供 iOS/原生端）
  *   GET    /:key             -> 读取单条记录
  *   HEAD   /:key             -> 只返回版本信息（响应头 X-Sync-Version / X-Sync-Updated）
  *   PUT    /:key             -> 写入，body: { "value": <any JSON> }
@@ -23,7 +24,17 @@
 
 import intro from './intro';
 import hub from './hub';
-import { appendHist, check, data as dashData, handleLogin, loginPage, page as dashPage } from './dash';
+import {
+  appendHist,
+  check,
+  data as dashData,
+  handleLogin,
+  histKey,
+  history as dashHistory,
+  loginPage,
+  page as dashPage,
+  HIST_TTL_MS,
+} from './dash';
 
 export interface Env {
   SYNC_KV: KVNamespace;
@@ -100,7 +111,17 @@ export default {
     }
 
     if (path === '/health' && method === 'GET') {
-      return json({ ok: true, service: 'cross-device-sync', time: new Date().toISOString() }, 200, cors);
+      return json(
+        {
+          ok: true,
+          service: 'cross-device-sync',
+          time: new Date().toISOString(),
+          histRetentionMs: HIST_TTL_MS,
+          histRetentionDays: Math.round(HIST_TTL_MS / 86400000),
+        },
+        200,
+        cors,
+      );
     }
 
     // ---- 中转数据看板（独立 cookie 鉴权，不走 x-sync-token）----
@@ -131,6 +152,16 @@ export default {
       return json({ error: 'unauthorized', hint: '请在请求头携带正确的 x-sync-token' }, 401, cors);
     }
 
+    // /dash/hist：只读历史（token 鉴权，给 iOS / 原生端）
+    if (path === '/dash/hist' && method === 'GET') {
+      const hk = normalizeKey(url.searchParams.get('key') || '');
+      if (!hk || hk.charAt(0) === '@') {
+        return json({ error: 'invalid_key', hint: '请传 ?key=<设备键>，如 watch/battery' }, 400, cors);
+      }
+      const hr = Number(url.searchParams.get('range') || '0');
+      const hrange = Number.isFinite(hr) && hr > 0 ? Math.min(hr, HIST_TTL_MS) : 0;
+      return dashHistory(env, hk, hrange);
+    }
     // /list
     if (path === '/list' && method === 'GET') {
       const prefix = url.searchParams.get('prefix') ?? '';
@@ -244,6 +275,10 @@ export default {
     if (method === 'DELETE') {
       if (!record) return json({ error: 'not_found', key }, 404, cors);
       await env.SYNC_KV.delete(key);
+      // 顺带删掉历史键，避免「删了设备还留一堆 @hist: 孤儿键」
+      const cleanup = env.SYNC_KV.delete(histKey(key));
+      if (ctx && typeof ctx.waitUntil === 'function') ctx.waitUntil(cleanup);
+      else await cleanup;
       return json({ ok: true, key, deletedVersion: record.version }, 200, cors);
     }
 

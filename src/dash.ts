@@ -10,7 +10,8 @@
  * Cookie：ws_dash=<sha256(DASH_PWD|SYNC_TOKEN)>，无法被伪造（依赖服务端密钥）。
  *
  * 历史：每次 PUT 成功后由 index.ts 调 appendHist() 采样写入 KV 的 @hist:<key>，
- *      环形保留最近 HIST_LIMIT 条；对外 API 屏蔽 @ 前缀键。
+ *      按时间窗保留最近 HIST_TTL_MS（7 天），HIST_LIMIT 仅作兜底上限；
+ *      对外 API 屏蔽 @ 前缀键。
  *
  * 设备模型（v2）：一台设备一个键，历史天然隔离
  *   watch/battery           手表（兼容旧客户端，键名保留）
@@ -18,6 +19,12 @@
  */
 const COOKIE = 'ws_dash';
 const HIST_LIMIT = 2000;
+/**
+ * 历史保留窗口：产品约束「只存最近一周」。
+ * 写入侧 appendHist 会剪掉比它更早的点，读取侧 data() 也按它兜底过滤，
+ * 所以无论 KV 里残留多老的数据，对外都不会超过 7 天。
+ */
+export const HIST_TTL_MS = 7 * 86400000;
 // 注意：以前这里有个「值没变也每 30 分钟补一个点」的 GAP_SAMPLE_MS。
 // 它让「未连接设备的缓存电量」看起来像在持续上报，已废弃：值不变就不记点。
 const MAX_DEVICES = 12; // 总览最多展开多少台设备（控制 KV 读次数）
@@ -41,7 +48,7 @@ function pwdOf(env: DashEnv): string {
   const p = env.DASH_PWD;
   return p && p.length > 0 ? p : '114514';
 }
-function histKey(key: string): string {
+export function histKey(key: string): string {
   return '@hist:' + key;
 }
 async function sha256Hex(input: string): Promise<string> {
@@ -134,7 +141,15 @@ export async function appendHist(
     const one: Sample = { t, l, c, v: version };
     if (s) one.s = s;
     if (mv) one.m = mv;
+    // ---- 时间窗裁剪：只保留最近 HIST_TTL_MS ----
+    // 数组按 t 单调递增（上面已把 t 夹到 >= last.t），过期点必然集中在头部，
+    // 因此用「下标扫描 + 一次 splice」剪枝，比 filter 少一次全量拷贝。
+    const ttlFrom = t - HIST_TTL_MS;
+    let drop = 0;
+    while (drop < arr.length && arr[drop].t < ttlFrom) drop++;
+    if (drop > 0) arr.splice(0, drop);
     arr.push(one);
+    // 时间窗是主约束；HIST_LIMIT 只是兜底，防止异常高频写入把单 value 撑爆
     while (arr.length > HIST_LIMIT) arr.shift();
     await env.SYNC_KV.put(hk, JSON.stringify(arr), {
       metadata: { updatedAt: new Date().toISOString() },
@@ -193,8 +208,11 @@ export async function data(env: DashEnv, key: string, rangeMs: number): Promise<
   }
   const devKeys = allKeys.filter(isDeviceKey);
   const now = Date.now();
-  const from = rangeMs > 0 ? now - rangeMs : 0;
-  const cut = (arr: Sample[]): Sample[] => (from > 0 ? arr.filter((s) => s.t >= from) : arr);
+  // 下限取「range 起点」与「保留窗口起点」中更晚的那个：
+  // range=0（全部）时等价于只看最近 HIST_TTL_MS。
+  const ttlFrom = now - HIST_TTL_MS;
+  const from = rangeMs > 0 ? Math.max(now - rangeMs, ttlFrom) : ttlFrom;
+  const cut = (arr: Sample[]): Sample[] => arr.filter((s) => s.t >= from);
 
   if (key !== '*' && key !== 'all' && key !== '') {
     const rec = await env.SYNC_KV.get(key, 'json');
@@ -242,6 +260,33 @@ export async function data(env: DashEnv, key: string, rangeMs: number): Promise<
     hist: [],
     total: 0,
     now,
+  });
+}
+
+/**
+ * 只读历史接口（x-sync-token 鉴权），供 iOS / 原生客户端使用。
+ *
+ * 为什么要单独开这个口子：/dash/data 走的是看板 cookie（要 DASH_PWD 换 cookie），
+ * 原生端不该内置看板密码，也不适合维护 cookie 流程；而 GET /:key 只返回最新记录、
+ * 不返回历史数组。所以这里给「持 SYNC_TOKEN 的客户端」一个纯 JSON 的历史读取端点。
+ *
+ * 返回：{ key, label, hist:[{t,l,c,v,s,m}], total, now, retentionMs }
+ *   - hist 已按 range 与保留窗口裁剪，时间升序
+ *   - total 是裁剪前的条数（便于客户端判断是否被截断）
+ */
+export async function history(env: DashEnv, key: string, rangeMs: number): Promise<Response> {
+  const now = Date.now();
+  const ttlFrom = now - HIST_TTL_MS;
+  const from = rangeMs > 0 ? Math.max(now - rangeMs, ttlFrom) : ttlFrom;
+  const rec = (await env.SYNC_KV.get(key, 'json')) as { value?: unknown } | null;
+  const hist = (await loadHist(env, key)).filter((s) => s.t >= from);
+  return jsonBody({
+    key,
+    label: labelOf(key, rec?.value),
+    hist,
+    total: hist.length,
+    now,
+    retentionMs: HIST_TTL_MS,
   });
 }
 
@@ -461,13 +506,12 @@ function dashHtml(): string {
       <option value="3600000">近 1 小时</option>
       <option value="10800000">近 3 小时</option>
       <option value="21600000">近 6 小时</option>
-      <option value="86400000" selected>近 24 小时</option>
+      <option value="86400000">近 24 小时</option>
       <option value="259200000">近 3 天</option>
-      <option value="604800000">近 7 天</option>
-      <option value="2592000000">近 30 天</option>
+      <option value="604800000" selected>近 7 天</option>
       <option value="0">全部</option>
     </select>
-    <label class="chk" title="勾选后直接取服务器存储的全部历史，且不做「充满电后」裁剪"><input type="checkbox" id="chkAll">全部历史</label>
+    <label class="chk" title="勾选后直接取服务器保留的全部历史（最近 7 天），且不做「充满电后」裁剪"><input type="checkbox" id="chkAll">全部历史</label>
     <button class="ghost" id="btnReload" type="button">刷新</button>
   </header>
   <div class="cards" id="cards"></div>
@@ -509,7 +553,7 @@ function dashHtml(): string {
 (function(){
 'use strict';
 var COLOR=['#60a5fa','#34d399','#fbbf24','#f472b6','#22d3ee','#a78bfa','#fb923c','#4ade80'];
-var S={key:'*',range:86400000,data:null,hidden:{},touched:{},all:false};
+var S={key:'*',range:604800000,data:null,hidden:{},touched:{},all:false};
 function $(id){return document.getElementById(id);}
 function pad(n){return n<10?'0'+n:''+n;}
 function fmtT(t){var d=new Date(t);
