@@ -455,6 +455,7 @@ function dashHtml(): string {
   .card.stale .lv{opacity:.42}
   .card.stale .bar{opacity:.25}
   .warn{color:#fbbf24}
+  .hint{color:#94a3b8}
   .mod{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#94a3b8;
     background:rgba(148,163,184,.14);border-radius:4px;padding:1px 5px;white-space:nowrap}
   .legend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-2px 0 8px;font-size:.7rem}
@@ -811,14 +812,21 @@ function drawChart(series){
     g.lineWidth=1.7;
     g.lineJoin='round';
     g.lineCap='round';
+    // 画线跳过孤立尖点：否则耳机的 ±10 交替会画成心电图。
+    // 注意这只是视觉降噪，原始点仍完整保留在下方表格里（标 *），不隐藏数据。
+    var fp=[];
+    for(j=0;j<p.length;j++){ if(!p[j].jump) fp.push(p[j]); }
+    if(fp.length<2) fp=p;
     g.beginPath();
-    for(j=0;j<p.length;j++){
-      var px=X(p[j].t),py=Y(p[j].l);
+    for(j=0;j<fp.length;j++){
+      var px=X(fp[j].t),py=Y(fp[j].l);
       if(j===0)g.moveTo(px,py);else g.lineTo(px,py);
     }
     g.stroke();
     for(j=0;j<p.length;j++){
-      var q=p[j],qx=X(q.t),qy=Y(q.l);
+      var q=p[j];
+      if(q.jump) continue;   // 尖点不画点，值仍在表格里
+      var qx=X(q.t),qy=Y(q.l);
       var chq=isCh(q);
       var rc=chq?r+0.8:r;
       g.beginPath();
@@ -937,7 +945,7 @@ function renderCards(its){
       delta=(dv>0?'+':'')+dv+'%';
     }
     var lv=cur?cur.l:null;
-    var since=cur?cur.t:0,stillH=0,stale=false;
+    var since=cur?cur.t:0,stillH=0;
     if(cur){
       since=cur.t;
       for(var q=p.length-1;q>0;q--){
@@ -945,19 +953,32 @@ function renderCards(its){
         since=p[0].t;
       }
       stillH=(Date.now()-since)/3600000;
-      stale=stillH>=2;
     }
-    h+='<div class="card'+(stale?' stale':'')+'">'+
+    /* 链路时间与电量时间是两回事，必须分开看：
+       linkTs  = KV 主键的 updatedAt，只要模块发起过 PUT 就会刷新（含心跳），代表「采集链路活着」
+       since   = 历史里最后一次电量变化，代表「电量真的变了」
+       两者都冻住 = 进程被冻结/模块停了；只有 since 冻住 = 链路正常，电量本来就没变。 */
+    var linkTs=0;
+    if(it.rec&&it.rec.updatedAt){
+      var lm=Date.parse(it.rec.updatedAt);
+      if(!isNaN(lm)&&lm>0)linkTs=lm;
+    }
+    var linkH=linkTs?(Date.now()-linkTs)/3600000:null;
+    var linkDead=linkH!==null&&linkH>=2;   // 2 小时没有 PUT → 采集大概率已停
+    h+='<div class="card'+(linkDead?' stale':'')+'">'+
        '<div class="nm" title="'+esc(it.key)+'">'+esc(it.label)+'</div>'+
        '<div class="lv">'+(lv===null?'--':lv)+'<i>%</i></div>'+
        '<div class="mt">'+
-       (cur?('更新 '+fmtT(cur.t)
+       (cur?('电量 '+fmtT(cur.t)
              +(cur.rep?' · <span style="color:#34d399">充电中</span>'
                :(cur.inf?' · <span style="color:#5eead4" title="设备未上报充电标志，按电量上升趋势推断">推测充电</span>':'')))
            :'无数据')+
-       (stale?'<br><span class="warn">值 '+fmtDur(stillH*3600000)+' 没变过，可能是未连接时的缓存值</span>':'')+
+       (linkTs?('<br>链路 '+fmtT(linkTs)+(linkDead?'<span class="warn"> · 已停</span>':'')):'<br>链路 —')+
+       (linkDead
+          ?'<br><span class="warn">'+fmtDur((linkH||0)*3600000)+' 没有任何上报，进程可能被冻结</span>'
+          :(stillH>=2?'<br><span class="hint">链路正常 · 电量 '+fmtDur(stillH*3600000)+' 未变</span>':''))+
        '<br>24h 变化 '+delta+' · 采样 '+st.valid+' 条'
-         +(st.jumps?'<span title="前后都相差 ≥'+JUMP+'% 而前后两点彼此接近，判为孤立尖点，已排除在续航预测之外"> <span class="warn">剔噪 '+st.jumps+'</span></span>':'')+
+         +(st.jumps?'<span title="前后都相差 ≥'+JUMP+'% 而前后两点彼此接近，判为孤立尖点：不参与续航预测，曲线里也不画点，原始值仍在上方表格中（标 *）"> <span class="warn">剔噪 '+st.jumps+'</span></span>':'')+
        '<br>掉电 '+(st.rate!==null?st.rate.toFixed(2)+' %/h':'—')+
        (st.life!==null?(' · 满电约 '+fmtDur(st.life*3600000)+(st.reg?'':' <span class="warn" title="有效样本不足，退回首末差分">~</span>')):'')+
        '</div>'+
