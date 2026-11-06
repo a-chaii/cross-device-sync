@@ -3,12 +3,12 @@
  *
  * 解决一个具体问题：服务端 AI 与 iPad 端 AI 各自开发时信息不对齐、重复造轮子。
  * 做法是给两端一个共同的锚点页面：
- *   /dev     协作台（分工表 + 三端实时进度 + 写入方法），需要看板登录
+ *   /dev     协作台（分工表 + 各端实时进度 + 写入方法），需要看板登录
  *   /docs    开发文档（接口契约 + 硬约束 + 常见坑），公开可读（AI 用 curl 就能取）
- *   /status  三端状态聚合 JSON（token 或看板 cookie 均可读）
+ *   /status  各端状态聚合 JSON（token 或看板 cookie 均可读）
  *
  * 状态存储刻意「一端一个键」，永不共写，从结构上消灭覆盖冲突：
- *   status/android · status/server · status/ipad
+ *   status/android · status/server · status/ipad · status/ios
  *
  * 设计约束：纯手写 HTML/CSS/JS，无 CDN、无框架、无图片，CSP 只放行内联。
  */
@@ -22,11 +22,12 @@ const HEADERS: Record<string, string> = {
     "default-src 'none'; style-src 'unsafe-inline'; script-src 'unsafe-inline'; img-src data:; connect-src 'self'; base-uri 'none'; form-action 'self'",
 };
 
-/** 三端的展示顺序与回退名。键名固定，AI 只写自己那个。 */
+/** 各端的展示顺序与回退名。键名固定，AI 只写自己那个。 */
 export const PEERS: Array<{ id: string; key: string; name: string; role: string }> = [
   { id: 'android', key: 'status/android', name: 'Android 采集端', role: 'Hook 读手表电量 · 上报' },
   { id: 'server', key: 'status/server', name: '服务端 + Web', role: 'Worker · KV · 看板 · 文档' },
   { id: 'ipad', key: 'status/ipad', name: 'iPad 客户端', role: '只读 App + Widget' },
+  { id: 'ios', key: 'status/ios', name: 'iOS 客户端', role: '只读 App + 小组件' },
 ];
 
 const MONO = 'ui-monospace,SFMono-Regular,"SF Mono",Menlo,Consolas,monospace';
@@ -133,14 +134,14 @@ const DEV_HTML = `<!doctype html>
 <div class="wrap">
   <div class="bar"><span class="mark"></span><span class="brand">WatchSync</span>${NAV}</div>
   <h1>开发协作台</h1>
-  <p class="sub">三端 AI 的公共锚点：分工边界、各自进度、在线状态。所有状态来自 KV 的 <code>status/*</code> 键。</p>
+  <p class="sub">各端 AI 的公共锚点：分工边界、各自进度、在线状态。所有状态来自 KV 的 <code>status/*</code> 键。</p>
 
   <div class="banner">
     <b>开工前先对齐。</b>任何 AI 在写第一行代码前，先读本页分工表 + <a href="/docs" style="color:#fcd34d">开发文档</a>，
     确认接口契约与职责边界。要改接口、改字段、改语义，<b>先改文档并在这里登记</b>，否则另一端会照着旧契约写出不兼容的东西。
   </div>
 
-  <div class="h2">三端状态 <span id="ts" style="color:#4f5d7d;font-weight:400"></span></div>
+  <div class="h2">各端状态 <span id="ts" style="color:#4f5d7d;font-weight:400"></span></div>
   <div class="cards" id="cards"><div class="p"><div class="kv">加载中…</div></div></div>
 
   <div class="h2">分工与边界</div>
@@ -160,7 +161,7 @@ const DEV_HTML = `<!doctype html>
   <div class="h2">怎么登记自己的状态</div>
   <div class="panel">
 <pre><i># 只能写自己那一个键，写完页面 20 秒内自动刷新</i>
-<b>PUT</b> /status/server   <i># 或 status/android · status/ipad</i>
+<b>PUT</b> /status/server   <i># 或 status/android · status/ipad · status/ios</i>
 x-sync-token: &lt;SYNC_TOKEN&gt;
 {"value":{
   "id":"server",
@@ -302,7 +303,7 @@ const DOCS_HTML = `<!doctype html>
 <b>DELETE</b> /:key                          <i>token · 同时清理 @hist:&lt;key&gt;</i>
 <b>GET</b>    /dash/hist?key=&amp;range=         <i>token · 只读历史（原生端专用，已带 CORS）</i>
 <b>GET</b>    /dash/stats?key=&amp;range=        <i>token · 预测统计：速率/续航/充电段/文案全部算好，客户端零算法</i>
-<b>GET</b>    /status                        <i>token 或看板 cookie · 三端状态聚合</i>
+<b>GET</b>    /status                        <i>token 或看板 cookie · 各端状态聚合</i>
 <b>GET</b>    /dev · /docs                   <i>协作台（需登录）· 本文档（公开）</i></pre>
     <p class="note">鉴权二选一：请求头 <code>x-sync-token</code>；或先 <code>POST /dash</code> 用 <code>DASH_PWD</code> 换 <code>ws_dash</code> cookie。原生端<b>不要</b>内置看板密码。</p>
   </div>
@@ -360,7 +361,7 @@ const DOCS_HTML = `<!doctype html>
 设备键    watch/battery
           dev/&lt;4–32 位 hex&gt;
           &lt;小写字母开头 1–21 位&gt;/battery
-状态键    status/android · status/server · status/ipad
+状态键    status/android · status/server · status/ipad · status/ios
 内部键    @hist:&lt;key&gt;   <i>（不对外暴露，不会出现在 /list）</i></pre>
     <p class="note">只有「设备键」会进看板设备列表、才会写历史采样。</p>
   </div>
@@ -436,7 +437,23 @@ const DOCS_HTML = `<!doctype html>
     <p class="note"><b>刷新预算</b>：WidgetKit 每个组件每天只有几十次刷新额度，<code>policy: .after</code> 只是「建议 15 分钟后叫我」，真正何时刷新由系统决定（低电量、后台受限、长时间没被看见都会延后）。所以不许把间隔改到 1 分钟——既不会生效，还会被限流。断网时必须静默用缓存。</p>
   </div>
 
-  <div class="h2">10 · 版本</div>
+<div class="h2">10 · 客户端必须回写开发状态（status/ios）</div>
+<div class="panel">
+<p class="note">协作台 <code>/dev</code> 与 <code>/status</code> 靠 KV 里的 <code>status/*</code> 聚合各端进度。客户端 AI 每完成一个里程碑就 PUT 一次自己的键（这是唯一允许的写操作，其余一律只读）：</p>
+<pre><b>PUT</b> /status/ios
+x-sync-token: &lt;SYNC_TOKEN&gt;
+{"value":{
+  "id":"ios", "name":"iOS 客户端", "role":"只读 App + 小组件",
+  "phase":"M2 小组件自动刷新已验收",
+  "doing":"正在做中号组件的 24h 曲线",
+  "next":["大号组件曲线","离线缓存兜底"],
+  "blockers":[],
+  "owner":"iOS-AI", "updatedAt":1793969700000
+}}</pre>
+<p class="note">字段：<code>phase</code> 一句话阶段 · <code>doing</code> 当前在做什么 · <code>next</code> 最多 6 条字符串 · <code>blockers</code> 卡住的事（没就空数组）· <code>updatedAt</code> 毫秒时间戳（不写会退回 KV 记录时间）。只写 <code>status/ios</code> 这一个键，别碰别的端。</p>
+</div>
+
+  <div class="h2">11 · 版本</div>
   <div class="panel">
     <table>
       <tr><th>版本</th><th>内容</th></tr>
@@ -476,7 +493,7 @@ interface PeerState {
   updatedAt?: number;
 }
 
-/** 读三端状态；缺失的端以 {id, missing:true} 占位，不让页面出现空洞 */
+/** 读各端状态；缺失的端以 {id, missing:true} 占位，不让页面出现空洞 */
 export async function statusData(env: { SYNC_KV: KVNamespace }): Promise<{ now: number; peers: PeerState[] }> {
   const peers = await Promise.all(
     PEERS.map(async (p) => {

@@ -21,13 +21,13 @@ chk('/docs 写到 reloadAllTimelines', docs.includes('reloadAllTimelines'));
 chk('/docs 有 gapRatio', docs.includes('gapRatio'));
 chk('/docs 有七值 status noData', docs.includes('noData'));
 chk('/docs 版本表有 v11.6', docs.includes('<b>v11.6</b>'));
-chk('/docs 版本节改为 10', docs.includes('10 · 版本'));
+chk('/docs 版本节改为 11', docs.includes('11 · 版本'));
 chk('/docs 接口表有 /dash/stats', docs.includes('/dash/stats?key=&amp;range='));
 chk('/docs 提到 API_STATS', docs.includes('API_STATS.md'));
 chk('/docs 无 emoji', !/[\u{1F300}-\u{1FAFF}]/u.test(docs));
 chk('/docs 不承诺每分钟同步', !/每分钟同步/.test(docs.replace(/不[许能可]承诺[^<]*|不承诺[^<]*/g, '')));
 chk('/docs 是完整 HTML', docs.trim().endsWith('</html>'));
-chk('/dev 也能打开', dev.length > 1000 && dev.includes('三端状态'));
+chk('/dev 也能打开', dev.length > 1000 && dev.includes('各端状态'));
 
 // ---- 仓库 md ----
 const ios = read('IOS_PROMPT.md'), ipad = read('IPAD_AGENT_PROMPT.md');
