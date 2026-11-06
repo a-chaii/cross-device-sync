@@ -100,9 +100,11 @@ npm run dev
 
 ```
 .
-├── src/index.ts                 # Worker 全部逻辑
+├── src/                         # index(路由/鉴权) dash(看板) stats(预测统计) dev(文档页) hub intro
 ├── wrangler.toml                # Worker 配置 / KV 绑定 / 变量
 ├── tsconfig.json
+├── docs/                        # 契约与任务书（ALGO / DESIGN / API_STATS / TECH / 两端 prompt）
+├── tests/                       # 四套回归测试（npm test）
 └── package.json
 ```
 
@@ -113,6 +115,10 @@ npm run dev
 - Workers KV 是**最终一致**的（同区域通常毫秒级生效，跨区域可能滞后数十秒），不适合强一致场景；需要强一致请改用 Durable Objects。
 - 版本号校验是「先读后写」实现的乐观锁，不是原子事务；高并发写入同一键时仍可能互相覆盖。
 - 请不要把 `SYNC_TOKEN` 提交进仓库，用 `wrangler secret` 或平台环境变量管理。
+
+## 五、回归测试
+
+`npm test`（等价 `bash tests/run.sh`）会编译 `src/` 到 `tests/.build/`、抽前端算法、跑四套共 **288** 条断言：交叉一致性 182、`/dash/stats` 契约 35、`/dash` 页面回归 28、文档一致性 43。详见 `docs/TECH.md` §11.7。
 
 ## License
 

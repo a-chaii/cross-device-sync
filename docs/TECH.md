@@ -484,10 +484,24 @@ status/ipad       iPad 客户端
 
 **客户端侧影响**：`IOS_PROMPT.md` §6 与 `IPAD_AGENT_PROMPT.md` §5 已从「移植算法 + 跑 13 组用例」改为「调接口 + 原样渲染」；`ALGO.md` 降级为口径解释。小组件自动刷新升级为验收硬条款（`policy: .after` + 每次联网 + `reloadAllTimelines()` + 放置 1 小时仍能自更新）。
 
+### 11.7 回归测试（v11.6 起入库）
+
+四套脚本原本放在 `/tmp`，机器清理一次就全丢（本轮丢过两次），已入库到 `tests/`。`npm test`（等价 `bash tests/run.sh`）会：编译 `src/index.ts` 到 `tests/.build/`、补 ESM 的 `.js` 后缀、从 `src/dash.ts` 里按大括号配对抽出 9 个前端函数生成 `front.js`，再依次跑四套：
+
+| 脚本 | 条数 | 管什么 |
+|---|---|---|
+| `tests/test_cross.mjs` | 182 | 前端 JS 与服务端 TS 逐字等价（13 组 fixtures，键序无关比较，过滤 Swift Codable 显式输出的 null） |
+| `tests/test_stats.mjs` | 35 | `/dash/stats` HTTP 契约：鉴权、参数（`range`/`all`/`points`）、返回形状、CORS、排序 |
+| `tests/test_page_smoke.mjs` | 28 | `/dash` 页面回归：HTML 闭合、内联脚本语法合法、关键文案与口径未退化 |
+| `tests/check_docs.mjs` | 43 | `/docs` 页面与仓库 md 必须与新契约一致（C9/C10、第 7/9 节、七值 `status`、`gapRatio`） |
+
+合计 288 条。`tsc` 会报 5 条 Cloudflare 环境类型缺失（`KVNamespace` / `ExecutionContext` 等），是预期噪音，脚本里已用 `|| true` 兜住——JS 照常产出，不影响测试。
+
 ## 12. 版本记录
 
 | 版本 | 变更 |
 |---|---|
+| v11.6 | 预测统一收到服务端：新增 `src/stats.ts`（九个算法从 `dash.ts` 逐字移植）+ `GET /dash/stats`（token 鉴权，七值 `status`、`display{title,subtitle,lines}` 成品文案、`curve` 等距抽稀）；修三处文案坑（`l>=100` 不再拼「约 —后充满」、`sparse` 用真实 `gapRatio`、`fmtDur` 补空格）；`/docs` 补第 7 节接口与第 9 节小组件自动刷新，硬约束增至 C10；四套回归测试入库 `tests/` 共 288 条 |
 | v11.5 | 充放电双模式：`chgStat()` 充电段统计（已充时长/充入电量/充电速率/预计充满/平均充电速率），`.seg` 右上角切换按钮，掉电分布同步「充入电量」面板，采样日志第 4 列随模式切「距上次掉电 / 已充电多久」，卡片显示「已充 X」；`ptsOf()` 对同一毫秒重复写入去重；充电段允许持平续段 |
 | docs v11.5 | 新增 `docs/ALGO.md`（预测算法唯一实现：输入契约/管线/参数/`chgStat` 伪码/13 组校验用例）与 `docs/DESIGN.md`（视觉 token 表/组件清单/九状态矩阵/文案正反例/Web→SwiftUI 映射）；`IOS_PROMPT.md` §6 换为新算法、§5.3 取消电量阈值分色、§11 新增两条禁止；`IPAD_AGENT_PROMPT.md` §5 整节重写（原 `slope<=0.2`/240h/分钟圆 5 的旧口径废弃）；`/docs` 补 §7 算法与 §8 视觉规范、硬约束增至 C8 |
 | v11.4 | 卡片拆「电量时间 / 链路时间」双时间：`链路` 取 KV 主键 `updatedAt`（≥2h 置灰提示进程被冻结），`电量` 取历史最后一点；曲线与散点跳过 `jump` 尖点 |
