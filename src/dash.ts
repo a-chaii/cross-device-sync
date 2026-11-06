@@ -34,6 +34,8 @@ export interface Sample {
   c: number | null;
   v: number;
   s?: string | null;
+  /** 采集端模块版本（Hook 的 mv 字段），用来分辨某段曲线是哪版模块采的 */
+  m?: string | null;
 }
 function pwdOf(env: DashEnv): string {
   const p = env.DASH_PWD;
@@ -114,6 +116,7 @@ export async function appendHist(
     const l = pickNum(value, 'level');
     const c = pickNum(value, 'charging');
     const s = pickStr(value, 'src');
+    const mv = pickStr(value, 'mv');
     // 采样时间优先用设备上报的 ts（毫秒），越界则回退到服务端时间
     const now = Date.now();
     const rts = pickNum(value, 'ts');
@@ -130,6 +133,7 @@ export async function appendHist(
     if (last && last.l === l && last.c === c) return;
     const one: Sample = { t, l, c, v: version };
     if (s) one.s = s;
+    if (mv) one.m = mv;
     arr.push(one);
     while (arr.length > HIST_LIMIT) arr.shift();
     await env.SYNC_KV.put(hk, JSON.stringify(arr), {
@@ -403,6 +407,8 @@ function dashHtml(): string {
   .card.stale .lv{opacity:.42}
   .card.stale .bar{opacity:.25}
   .warn{color:#fbbf24}
+  .mod{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#94a3b8;
+    background:rgba(148,163,184,.14);border-radius:4px;padding:1px 5px;white-space:nowrap}
   .legend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-2px 0 8px;font-size:.7rem}
   .legend b{display:inline-flex;align-items:center;gap:5px;cursor:pointer;color:var(--muted);
             font-weight:400;user-select:none;-webkit-user-select:none}
@@ -491,7 +497,7 @@ function dashHtml(): string {
     <div class="tblwrap">
       <table>
         <thead><tr>
-          <th>时间</th><th>电量</th><th>变化</th><th>距上次掉电</th><th>状态</th><th title="该设备这条记录被成功写入的次数，去重跳过的采样也会计入，所以不连续">写入序</th>
+          <th>时间</th><th>电量</th><th>变化</th><th>距上次掉电</th><th>状态</th><th title="采集端模块版本（Hook 的 mv 字段）。同一段曲线若跨版本，可据此判断数据来源">模块</th><th title="该设备这条记录被成功写入的次数，去重跳过的采样也会计入，所以不连续">写入序</th>
         </tr></thead>
         <tbody id="rows"></tbody>
       </table>
@@ -905,7 +911,7 @@ function buildRows(hist){
     var d=prev?(q.l-prev.l):null;
     var sd=lastDrop!==null?(q.t-lastDrop):null;
     var isDrop=prev?(q.l<prev.l):false;
-    out.push({t:q.t,l:q.l,d:d,sd:sd,c:isCh(q),v:q.v,drop:isDrop});
+    out.push({t:q.t,l:q.l,d:d,sd:sd,c:isCh(q),v:q.v,drop:isDrop,m:q.m});
     if(isDrop)lastDrop=q.t;
     prev=q;
   }
@@ -942,11 +948,12 @@ function renderTable(its){
        '<td class="num '+cls+'">'+dtxt+'</td>'+
        '<td class="num">'+(r.drop?'<b class="drop">'+sdtxt+'</b>':sdtxt)+'</td>'+
        '<td>'+(r.c?'充电':'放电')+'</td>'+
+       '<td class="num">'+(r.m?'<span class="mod">'+esc(String(r.m).replace(/^watchbat-/,''))+'</span>':'—')+'</td>'+
        '<td class="num" title="该记录第 '+r.v+' 次成功写入；不连续是因为去重跳过的采样也计入了计数">#'+r.v+'</td>'+
        '</tr>';
   }
   $('rows').innerHTML=h||
-    '<tr><td colspan="7" class="empty">暂无采样，等下一次上报。</td></tr>';
+    '<tr><td colspan="8" class="empty">暂无采样，等下一次上报。</td></tr>';
   $('logMeta').textContent='共 '+all.length+' 条 · 显示 '+view.length;
 }
 function renderAll(){
