@@ -456,6 +456,11 @@ function dashHtml(): string {
   .card.stale .bar{opacity:.25}
   .warn{color:#fbbf24}
   .hint{color:#94a3b8}
+  .seg{margin-left:auto;display:inline-flex;border:1px solid var(--line);border-radius:9px;
+       overflow:hidden;align-self:center}
+  .seg button{font:inherit;font-size:.66rem;line-height:1.6;background:transparent;border:0;
+              color:var(--muted);padding:2px 9px;cursor:pointer}
+  .seg button.on{background:rgba(59,130,246,.22);color:#dbeafe}
   .mod{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#94a3b8;
     background:rgba(148,163,184,.14);border-radius:4px;padding:1px 5px;white-space:nowrap}
   .legend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-2px 0 8px;font-size:.7rem}
@@ -529,14 +534,19 @@ function dashHtml(): string {
   </div>
   <div class="grid2">
     <div class="panel">
-      <h2>掉电分布 <em>每小时掉电次数</em></h2>
+      <h2><span id="distTitle">掉电分布</span> <em id="distMeta">每小时掉电次数</em></h2>
       <div class="chartwrap">
         <canvas id="bars" data-h="168"></canvas>
         <div class="tip" id="tip2"></div>
       </div>
     </div>
     <div class="panel">
-      <h2>续航统计 <em id="statMeta"></em></h2>
+      <h2><span id="statTitle">续航统计</span> <em id="statMeta"></em>
+        <span class="seg" id="segMode">
+          <button type="button" data-m="dis" class="on">放电</button>
+          <button type="button" data-m="chg">充电</button>
+        </span>
+      </h2>
       <div class="stats" id="stats"></div>
     </div>
   </div>
@@ -545,7 +555,7 @@ function dashHtml(): string {
     <div class="tblwrap">
       <table>
         <thead><tr>
-          <th>时间</th><th>电量</th><th>变化</th><th>距上次掉电</th><th>状态</th><th title="采集端模块版本（Hook 的 mv 字段）。同一段曲线若跨版本，可据此判断数据来源">模块</th><th title="该设备这条记录被成功写入的次数，去重跳过的采样也会计入，所以不连续">写入序</th>
+          <th>时间</th><th>电量</th><th>变化</th><th id="thSince">距上次掉电</th><th>状态</th><th title="采集端模块版本（Hook 的 mv 字段）。同一段曲线若跨版本，可据此判断数据来源">模块</th><th title="该设备这条记录被成功写入的次数，去重跳过的采样也会计入，所以不连续">写入序</th>
         </tr></thead>
         <tbody id="rows"></tbody>
       </table>
@@ -557,7 +567,7 @@ function dashHtml(): string {
 (function(){
 'use strict';
 var COLOR=['#60a5fa','#34d399','#fbbf24','#f472b6','#22d3ee','#a78bfa','#fb923c','#4ade80'];
-var S={key:'*',range:604800000,data:null,hidden:{},touched:{},all:false};
+var S={key:'*',range:604800000,data:null,hidden:{},touched:{},all:false,mode:'dis'};
 function $(id){return document.getElementById(id);}
 function pad(n){return n<10?'0'+n:''+n;}
 function fmtT(t){var d=new Date(t);
@@ -650,7 +660,16 @@ function keyItem(k){var a=items();for(var i=0;i<a.length;i++){if(a[i].key===k)re
 function ptsOf(hist){
   var a=[];
   if(!hist)return a;
-  for(var i=0;i<hist.length;i++){if(typeof hist[i].l==='number')a.push(hist[i]);}
+  for(var i=0;i<hist.length;i++){
+    var h=hist[i];
+    if(typeof h.l!=='number')continue;
+    /* 同一毫秒写两条：只保留先到的那条。
+       模块在同一 tick 里可能连写两次（实测 11:03:29 先 79 后 75），
+       两条都留下会让曲线在同一横坐标上「一升一降」，凭空多出一次 4% 掉电，
+       还会把正在进行的充电段从中间切断。 */
+    if(a.length&&a[a.length-1].t===h.t)continue;
+    a.push(h);
+  }
   return annotate(a);   // 统一在这里做标注，下游（卡片/表格/统计）拿到的都是带 rep/inf/jump 的点
 }
 function items(){
@@ -858,17 +877,23 @@ function drawBars(its){
   var hp=[];
   cv._hp=hp;
   var now=Date.now();
+  var chgMode=S.mode==='chg';
   var cnt=[],sam=[],i;
   for(i=0;i<24;i++){cnt.push(0);sam.push(0);}
   for(i=0;i<its.length;i++){
     if(!shownIt(its[i]))continue;
     var p=ptsOf(its[i].hist);
     for(var b=0;b<p.length;b++){
+      if(p[b].jump)continue;   // 尖点不参与分布统计
       var idx=23-Math.floor((now-p[b].t)/3600000);
       if(idx>=0&&idx<24)sam[idx]++;
-      if(b>0&&p[b].l<p[b-1].l){
+      if(b>0&&!p[b-1].jump){
+        var dl=p[b].l-p[b-1].l;
         var idx2=23-Math.floor((now-p[b].t)/3600000);
-        if(idx2>=0&&idx2<24)cnt[idx2]++;
+        if(idx2>=0&&idx2<24){
+          if(chgMode){ if(dl>0)cnt[idx2]+=dl; }   // 充电：累加充入百分点
+          else{ if(dl<0)cnt[idx2]++; }            // 放电：累加掉电次数
+        }
       }
     }
   }
@@ -896,8 +921,13 @@ function drawBars(its){
     var y=H-B-hgt;
     if(hgt>0){
       var grd=g.createLinearGradient(0,y,0,H-B);
-      grd.addColorStop(0,'rgba(96,165,250,.95)');
-      grd.addColorStop(1,'rgba(59,130,246,.30)');
+      if(chgMode){
+        grd.addColorStop(0,'rgba(52,211,153,.95)');
+        grd.addColorStop(1,'rgba(16,185,129,.30)');
+      }else{
+        grd.addColorStop(0,'rgba(96,165,250,.95)');
+        grd.addColorStop(1,'rgba(59,130,246,.30)');
+      }
       g.fillStyle=grd;
       g.beginPath();
       if(g.roundRect)g.roundRect(x,y,w2,hgt,3);else g.rect(x,y,w2,hgt);
@@ -905,14 +935,15 @@ function drawBars(its){
     }
     var hh=((nowH-23+d)%24+24)%24;
     hp.push({x:x+w2/2,y:y+Math.min(hgt/2,12),
-      html:'<b>'+pad(hh)+':00 – '+pad((hh+1)%24)+':00</b><br>掉电 '+cnt[d]+' 次 · 采样 '+
+      html:'<b>'+pad(hh)+':00 – '+pad((hh+1)%24)+':00</b><br>'+
+        (chgMode?('充入 '+cnt[d]+'%'):('掉电 '+cnt[d]+' 次'))+' · 采样 '+
         sam[d]+' 条'});
   }
   if(!any){
     g.fillStyle='#8b98b3';
     g.textAlign='center';
     g.textBaseline='middle';
-    g.fillText('近 24 小时没有掉电记录',W/2,T+yh/2);
+    g.fillText(chgMode?'近 24 小时没有充入记录':'近 24 小时没有掉电记录',W/2,T+yh/2);
   }
   g.fillStyle='#8b98b3';
   g.textAlign='center';
@@ -954,6 +985,11 @@ function renderCards(its){
       }
       stillH=(Date.now()-since)/3600000;
     }
+    /* 「已充电多久」直接取 chgStat 的当前充电段，和统计面板同源；
+       只算到最后一条数据，避免采集冻结时把时长吹大 */
+    var cs=chgStat(p);
+    var chgOn=cs.open?cs.cur:null;
+    var chgMs=chgOn?(chgOn.t-chgOn.t0):null;
     /* 链路时间与电量时间是两回事，必须分开看：
        linkTs  = KV 主键的 updatedAt，只要模块发起过 PUT 就会刷新（含心跳），代表「采集链路活着」
        since   = 历史里最后一次电量变化，代表「电量真的变了」
@@ -970,8 +1006,10 @@ function renderCards(its){
        '<div class="lv">'+(lv===null?'--':lv)+'<i>%</i></div>'+
        '<div class="mt">'+
        (cur?('电量 '+fmtT(cur.t)
-             +(cur.rep?' · <span style="color:#34d399">充电中</span>'
-               :(cur.inf?' · <span style="color:#5eead4" title="设备未上报充电标志，按电量上升趋势推断">推测充电</span>':'')))
+             +(chgOn?(chgOn.inf
+                 ?' · <span style="color:#5eead4" title="设备未上报充电标志，电量不再下降且此前在上涨，按趋势推断">推测充电</span>'
+                 :' · <span style="color:#34d399">充电中</span>'):'')
+             +(chgMs!==null?' · 已充 '+fmtDur(chgMs):''))
            :'无数据')+
        (linkTs?('<br>链路 '+fmtT(linkTs)+(linkDead?'<span class="warn"> · 已停</span>':'')):'<br>链路 —')+
        (linkDead
@@ -1011,9 +1049,65 @@ function renderLegend(its){
     };
   }
 }
+/**
+ * 充电段统计：与 statOf 对称，但看的是「电量上升」那一半。
+ * 起段：设备上报了充电标志(q.rep)，或电量相对上一点开始上涨；
+ * 续段：电量持平或上涨都算（采集间隔 1~2 分钟，中间必然会有点持平）；
+ * 收段：电量真正下降（掉电）才收段，孤立尖点直接跳过。
+ * 最后一段没有被掉电收掉 → open=true，表示「现在正在充电」。
+ */
+function chgStat(p){
+  var segs=[],cur=null,i,prev=null;
+  for(i=0;i<p.length;i++){
+    var q=p[i];
+    if(q.jump)continue;                       // 尖点不参与分段
+    var rise=prev?(q.l-prev.l>=1):false;      // 相对上一点在涨 → 起段
+    var drop=prev?(q.l<prev.l):false;         // 真正掉电 → 收段
+    if(cur){
+      if(drop){cur.t1=q.t;segs.push(cur);cur=null;}
+      else{
+        /* 持平必须留在段内：采集端每 1~2 分钟报一次，电量经常连续几点不变，
+           按「上升才算充电」切段会把一次完整充电切成几十个碎片。 */
+        cur.t=q.t;cur.l=q.l;cur.n++;
+        if(q.rep)cur.inf=false;
+      }
+    }else if(q.rep||rise){
+      cur={t0:q.t,l0:q.l,t:q.t,l:q.l,n:1,inf:!q.rep};
+    }
+    prev=q;
+  }
+  if(cur){cur.open=true;cur.t1=cur.t;segs.push(cur);}
+  var gain=0;
+  for(i=0;i<segs.length;i++)gain+=(segs[i].l-segs[i].l0);
+  var last=segs.length?segs[segs.length-1]:null;
+  var elapsed=0,curGain=0,rate=null,eta=null;
+  if(last&&last.open){
+    /* 时长只算到「最后一条数据」，不外推到 Date.now()：
+       采集端息屏会被冻结，如果按现在外推，一个已经停了 5 小时的充电段
+       会被写成「已充 8 小时」，越冻越离谱。宁可显示得保守。 */
+    elapsed=last.t-last.t0;
+    curGain=last.l-last.l0;
+    if(elapsed>180000&&curGain>0){rate=curGain/(elapsed/3600000);}
+    if(rate!==null&&rate>0&&last.l<100)eta=(100-last.l)/rate*3600000;
+  }
+  var closed=0,cg=0;
+  for(i=0;i<segs.length;i++){
+    var g=segs[i];
+    if(g.open)continue;
+    var dur=g.t-g.t0;
+    if(dur<=0)continue;
+    var gg=g.l-g.l0;
+    if(gg<=0)continue;   // 零/负充入的段（例如耳机 100→100 的假段）不参与平均速率
+    closed++;cg+=gg/(dur/3600000);
+  }
+  return {segs:segs,n:segs.length,open:last?!!last.open:false,cur:last,
+          elapsed:elapsed,gain:gain,curGain:curGain,rate:rate,eta:eta,
+          avgRate:closed?cg/closed:null};
+}
 function renderStats(its){
   var h='',i,shown=0;
   function row(k,v){return '<div><span>'+k+'</span><b>'+v+'</b></div>';}
+  var chgMode=S.mode==='chg';
   for(i=0;i<its.length;i++){
     var it=its[i];
     if(!shownIt(it))continue;
@@ -1025,22 +1119,55 @@ function renderStats(its){
          esc(it.label)+'<span style="opacity:.75;margin-left:auto">'+
          (S.all?'全部采样':'充满电后')+' '+p.length+' 点</span></div>';
     }
-    h+=row('采样点',st.n+(st.jumps?'（剔噪 '+st.jumps+'）':''));
-    h+=row('覆盖时长',fmtDur(st.span));
-    h+=row('掉电次数',st.drops.length);
-    h+=row('累计掉电',st.sum+'%');
-    h+=row('单次最大',st.maxOne?st.maxOne+'%':'—');
-    h+=row('平均掉电间隔',st.avgGap!==null?fmtDur(st.avgGap):'—');
-    h+=row('最长不掉电',st.maxGap!==null?fmtDur(st.maxGap):'—');
-    h+=row('掉电速率',st.rate!==null?st.rate.toFixed(2)+' %/h'+(st.reg?'<span class="mod">回归</span>':''):'—');
-    h+=row('满电续航',st.life!==null?'约 '+fmtDur(st.life*3600000):'—');
-    h+=row('充电次数',st.charges+'<span class="mod">含推断</span>');
+    if(chgMode){
+      var cs=chgStat(p);
+      h+=row('采样点',st.n+(st.jumps?'（剔噪 '+st.jumps+'）':''));
+      h+=row('覆盖时长',fmtDur(st.span));
+      if(cs.open&&cs.cur){
+        h+=row('状态','<span style="color:#34d399">充电中</span>'+
+          (cs.cur.inf?'<span class="mod" title="设备未上报充电标志，这一整段是按电量上升趋势推断的">推断</span>':''));
+        h+=row('已充时长',fmtDur(cs.elapsed));
+        h+=row('已充入',(cs.curGain>=0?'+':'')+cs.curGain+'%'+
+          '<span class="mod">'+cs.cur.l0+'→'+cs.cur.l+'</span>');
+        h+=row('充电速率',cs.rate!==null?cs.rate.toFixed(2)+' %/h':'—');
+        h+=row('预计充满',cs.cur.l>=100?'已充满':
+          (cs.eta!==null?'约 '+fmtDur(cs.eta):'—'));
+      }else{
+        h+=row('状态','未在充电');
+        h+=row('已充时长','—');
+        if(cs.n){
+          var last=cs.segs[cs.n-1];
+          h+=row('最近一段',fmtT(last.t0)+' → '+fmtT(last.t1));
+          h+=row('充入电量',(last.l-last.l0)+'%<span class="mod">'+last.l0+'→'+last.l+'</span>');
+          if(last.t1>last.t0){
+            h+=row('该段速率',((last.l-last.l0)/((last.t1-last.t0)/3600000)).toFixed(2)+' %/h');
+          }
+        }else{
+          h+=row('最近一段','没有充电记录');
+        }
+        h+=row('预计充满','—');
+      }
+      h+=row('充电段数',cs.n);
+      h+=row('累计充入',cs.gain>0?'+'+cs.gain+'%':'—');
+      h+=row('平均充电速率',cs.avgRate!==null?cs.avgRate.toFixed(2)+' %/h':'—');
+    }else{
+      h+=row('采样点',st.n+(st.jumps?'（剔噪 '+st.jumps+'）':''));
+      h+=row('覆盖时长',fmtDur(st.span));
+      h+=row('掉电次数',st.drops.length);
+      h+=row('累计掉电',st.sum+'%');
+      h+=row('单次最大',st.maxOne?st.maxOne+'%':'—');
+      h+=row('平均掉电间隔',st.avgGap!==null?fmtDur(st.avgGap):'—');
+      h+=row('最长不掉电',st.maxGap!==null?fmtDur(st.maxGap):'—');
+      h+=row('掉电速率',st.rate!==null?st.rate.toFixed(2)+' %/h'+(st.reg?'<span class="mod">回归</span>':''):'—');
+      h+=row('满电续航',st.life!==null?'约 '+fmtDur(st.life*3600000):'—');
+      h+=row('充电次数',st.charges+'<span class="mod">含推断</span>');
+    }
   }
   $('stats').innerHTML=h||'<div style="grid-column:1/-1;color:var(--muted)">没有可统计的设备（稀疏设备已默认排除，点图例可强制显示）</div>';
   $('statMeta').textContent=shown>1?('按设备分别统计 · '+shown+' 台'):(shown===1?'单设备':'无设备');
 }
 function buildRows(hist){
-  var p=ptsOf(hist),out=[],prev=null,lastDrop=null;
+  var p=ptsOf(hist),out=[],prev=null,lastDrop=null,chgFrom=null;
   for(var i=0;i<p.length;i++){
     var q=p[i],jump=!!q.jump;
     var d=null,sd=null,isDrop=false;
@@ -1049,7 +1176,18 @@ function buildRows(hist){
       sd=lastDrop!==null?(q.t-lastDrop):null;
       isDrop=q.l<prev.l;
     }
-    out.push({t:q.t,l:q.l,d:d,sd:sd,c:!!q.rep,inf:!!q.inf,jump:jump,v:q.v,drop:isDrop,m:q.m});
+    /* 充电段判定与 chgStat 用同一套状态机（起段=上报充电或开始上涨，收段=真掉电），
+       保证表格里的「已充电多久」和统计面板的「已充时长」是同一个数 */
+    if(!jump&&prev){
+      if(chgFrom!==null){
+        if(q.l<prev.l)chgFrom=null;
+      }else if(q.rep||q.l-prev.l>=1){
+        chgFrom=q.t;
+      }
+    }
+    var chg=chgFrom!==null;
+    var ct=chg?(q.t-chgFrom):null;
+    out.push({t:q.t,l:q.l,d:d,sd:sd,ct:ct,chg:chg,c:!!q.rep,inf:!!q.inf,jump:jump,v:q.v,drop:isDrop,m:q.m});
     if(isDrop)lastDrop=q.t;
     if(!jump)prev=q;   // 跳变点不更新基准，下一段的增量仍相对最后一个正常点算
   }
@@ -1068,6 +1206,7 @@ function renderTable(its){
   all.sort(function(a,b){return b.t-a.t;});
   var cap=S.key==='*'?160:600;
   var view=all.length>cap?all.slice(0,cap):all;
+  var chgMode=S.mode==='chg';
   var h='';
   for(i=0;i<view.length;i++){
     var r=view[i];
@@ -1077,15 +1216,25 @@ function renderTable(its){
       else if(r.d<0){dtxt=String(r.d);cls='drop';}
       else{dtxt='0';}
     }
-    var sdtxt=r.sd===null?'—':fmtDur(r.sd);
+    /* 第四列随模式切换：放电看「距上次掉电」，充电看「这一充电段已经充了多久」 */
+    var sdtxt,scell;
+    if(chgMode){
+      sdtxt=r.ct===null?'—':fmtDur(r.ct);
+      scell=r.ct!==null?('<b class="up">'+sdtxt+'</b>'):sdtxt;
+    }else{
+      sdtxt=r.sd===null?'—':fmtDur(r.sd);
+      scell=r.drop?('<b class="drop">'+sdtxt+'</b>'):sdtxt;
+    }
     var dotc=r.c?'#34d399':(r.drop?'#f87171':'#60a5fa');
     h+='<tr>'+
        '<td class="num" title="'+esc(r.label)+'">'+
        '<span class="dot" style="background:'+dotc+'"></span>'+fmtT(r.t)+'</td>'+
        '<td class="num">'+r.l+'%'+(r.jump?'<span class="warn" title="孤立尖点：前后都相差 ≥'+JUMP+'%，已排除在续航预测之外">*</span>':'')+'</td>'+
        '<td class="num '+cls+'">'+dtxt+'</td>'+
-       '<td class="num">'+(r.drop?'<b class="drop">'+sdtxt+'</b>':sdtxt)+'</td>'+
-       '<td>'+(r.c?'充电':(r.inf?'<span style="color:#5eead4" title="设备未上报充电标志，按电量上升趋势推断">推测充电</span>':'放电'))+'</td>'+
+       '<td class="num">'+scell+'</td>'+
+       '<td>'+(r.chg
+         ?(r.c?'充电':'<span style="color:#5eead4" title="设备未上报充电标志，电量未再下降且此前在上涨，按趋势推断">推测充电</span>')
+         :'放电')+'</td>'+
        '<td class="num">'+(r.m?'<span class="mod">'+esc(String(r.m).replace(/^watchbat-/,''))+'</span>':'—')+'</td>'+
        '<td class="num" title="该记录第 '+r.v+' 次成功写入；不连续是因为去重跳过的采样也计入了计数">#'+r.v+'</td>'+
        '</tr>';
@@ -1094,10 +1243,27 @@ function renderTable(its){
     '<tr><td colspan="8" class="empty">暂无采样，等下一次上报。</td></tr>';
   $('logMeta').textContent='共 '+all.length+' 条 · 显示 '+view.length;
 }
+/* 放电 / 充电两种视角共用一个面板，切模式只改文案和按钮态，数据不重新拉取 */
+function applyMode(){
+  var chg=S.mode==='chg';
+  var sb=$('segMode');
+  if(sb){
+    var bs=sb.getElementsByTagName('button');
+    for(var i=0;i<bs.length;i++){
+      bs[i].className=bs[i].getAttribute('data-m')===S.mode?'on':'';
+    }
+  }
+  var st=$('statTitle'),dt=$('distTitle'),dm=$('distMeta'),th=$('thSince');
+  if(st)st.textContent=chg?'充电统计':'续航统计';
+  if(dt)dt.textContent=chg?'充入分布':'掉电分布';
+  if(dm)dm.textContent=chg?'每小时充入电量（%）':'每小时掉电次数';
+  if(th)th.textContent=chg?'已充电多久':'距上次掉电';
+}
 function renderAll(){
   var d=S.data;
   if(!d)return;
   var its=items(),series=[],i,tot=0;
+  applyMode();
   renderCards(its);
   for(i=0;i<its.length;i++){
     var it=its[i];
@@ -1154,6 +1320,20 @@ $('btnReload').onclick=function(){load();};
 $('selKey').onchange=function(){S.key=this.value;S.hidden={};load();};
 $('selRange').onchange=function(){S.range=+this.value;load();};
 $('chkAll').onchange=function(){S.all=this.checked;$('selRange').disabled=S.all;load();};
+/* 右上角的 放电 / 充电 切换：纯前端重绘，不重新请求 /dash/data */
+(function(){
+  var sb=$('segMode');
+  if(!sb)return;
+  var bs=sb.getElementsByTagName('button');
+  for(var i=0;i<bs.length;i++){
+    bs[i].onclick=function(){
+      var m=this.getAttribute('data-m');
+      if(!m||m===S.mode)return;
+      S.mode=m;
+      if(S.data)renderAll();else applyMode();
+    };
+  }
+})();
 var rt=null;
 window.addEventListener('resize',function(){
   clearTimeout(rt);

@@ -166,7 +166,7 @@ x-sync-token: &lt;SYNC_TOKEN&gt;
   "id":"server",
   "name":"服务端 + Web",
   "role":"Worker · KV · 看板 · 文档",
-  "phase":"v11.1 已上线",
+  "phase":"v11.5 已上线",
   "doing":"正在做什么（一句话）",
   "next":["下一步 A","下一步 B"],
   "blockers":[],
@@ -367,6 +367,8 @@ const DOCS_HTML = `<!doctype html>
       <tr><th>版本</th><th>内容</th></tr>
       <tr><td><b>v11.1</b></td><td>7 天时间窗 · <code>/dash/hist</code> · DELETE 清历史 · <code>/health</code> 暴露保留窗口 · CORS</td></tr>
       <tr><td><b>v11.2</b></td><td><code>/dev</code> 协作台 · <code>/docs</code> 文档 · <code>/status</code> 聚合 · 非设备键不再写历史</td></tr>
+      <tr><td><b>v11.4</b></td><td>卡片拆「电量时间 / 链路时间」· 链路冻结提示 · 曲线跳过尖点</td></tr>
+      <tr><td><b>v11.5</b></td><td>充放电双模式 · <code>chgStat</code> 充电段统计 · 预计充满 · 采样日志「已充电多久」</td></tr>
     </table>
   </div>
 
