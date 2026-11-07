@@ -276,6 +276,7 @@ const DOCS_HTML = `<!doctype html>
   <div class="bar"><span class="mark"></span><span class="brand">WatchSync</span>${NAV}</div>
   <h1>开发文档</h1>
   <p class="sub">跨端对接的唯一契约。改动接口先改这里，再改代码 —— 两端 AI 都按这页写。</p>
+  <p class="note"><b>本服务入口：</b><code>https://a-chai.de5.net</code>（Custom Domain，大陆可直连）。<b>不要用 <code>*.workers.dev</code></b> —— 该域在中国大陆被 DNS 污染 + SNI 阻断，只有境外/挂代理才通；本文档里的路径都是相对本域的相对路径，客户端把 base URL 填成上面这个就行。</p>
 
   <div class="h2">1 · 链路与职责</div>
   <div class="panel">
@@ -290,6 +291,7 @@ const DOCS_HTML = `<!doctype html>
       <tr><td><b>Android</b></td><td>读写</td><td>唯一的生产者，负责 <code>PUT</code> 电量</td></tr>
       <tr><td><b>Web 看板</b></td><td>只读</td><td>cookie 登录（<code>DASH_PWD</code>），不持有 token</td></tr>
       <tr><td><b>iPad App / Widget</b></td><td><b>只读</b></td><td>只用 <code>GET</code>；禁止任何写操作</td></tr>
+      <tr><td><b>iOS App / Widget</b></td><td><b>只读</b></td><td>只用 <code>GET</code>；唯一例外是回写自己的开发状态 <code>PUT /status/ios</code>（见第 10 节）</td></tr>
     </table>
   </div>
 
