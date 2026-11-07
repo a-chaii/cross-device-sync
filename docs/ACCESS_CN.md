@@ -4,6 +4,7 @@
 
 - 服务默认域：`cross-device-sync.beluga233.workers.dev`。
 - `*.workers.dev` **整个域名**在中国大陆被 DNS 污染（解析回 0.0.0.0 / 127.x / 内网地址）+ SNI 阻断。这与本仓库代码无关：同一个 Worker 换自己的域名就能连。
+- **当前已绑自定义域**：`https://a-chai.de5.net`（子域 `a-chai` 的 NS 已委派给 Cloudflare：`greg.ns.cloudflare.com` / `jen.ns.cloudflare.com`）。workers.dev 保留作备份入口。
 - 实测本机当前走的是 fake-ip 代理（`getent hosts` 返回 fc00::4、`remote_ip=198.18.0.9`），所以必须带 `--resolve` 才通——**这不是大陆直连可用的证据**。
 
 ## 2. 方案对比
@@ -20,10 +21,11 @@
 1. 买个域名（.top / .xyz / .cc 首年几块到十几块），别买已被墙的。
 2. 注册商面板把 NS 改成 Cloudflare 给的两个（形如 xxx.ns.cloudflare.com）。
 3. 二选一：
-   - Dashboard → Workers & Pages → cross-device-sync → Settings → Domains & Routes → Add → **Custom Domain**，填 sync.你的域名；
-   - 或改 `wrangler.toml` 末尾那行 `routes`，把示例域名换成你的，然后 `npx wrangler deploy`。
+   - Dashboard → Workers & Pages → cross-device-sync → Settings → Domains & Routes → Add → **Custom Domain**，填 a-chai.de5.net；
+   - 或改 `wrangler.toml` 里的 `routes`，把域名换成你的，push 到 main 由 GitHub 自动构建上线。
+   - **坑**：`routes` 必须是**顶层键**，要写在所有 `[table]`（如 `[vars]`、`[observability]`）之前。写在文件末尾会被 TOML 解析成 `observability.routes`，部署时静默失效。
 4. 等证书状态变 Active（1–5 分钟）。
-5. 验证：`curl -s https://sync.你的域名/health`，再带 token 调 `/dash/stats`。
+5. 验证：`curl -s https://a-chai.de5.net/health`，再带 token 调 `/dash/stats`。
 6. 客户端只改一处：`Config.xcconfig` 的 `API_BASE_URL`；文档里的 base URL 由服务端统一替换。
 
 ## 4. 注意
@@ -37,7 +39,7 @@
 
 | 位置 | 改什么 |
 |---|---|
-| `wrangler.toml` | `routes` 那行取消注释并填新域名 |
+| `wrangler.toml` | 顶层 `routes` 的 `pattern` 换成新域名（勿写在 `[table]` 之后） |
 | `docs/*.md` 与 `src/dev.ts` 里的示例 | base URL 统一替换（含 `/docs` 页面示例） |
 | `IOS_PROMPT.md` / `IPAD_AGENT_PROMPT.md` | `/docs` 地址与 curl 示例 |
 | iOS 工程 | `Config.xcconfig` 的 `API_BASE_URL` |
