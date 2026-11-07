@@ -41,7 +41,7 @@
 
 ### 2. 服务端契约（严格照此，字段名一个都不能改）
 
-Base URL：从 `Config.swift` 的 `API_BASE_URL` 读取（我会填真实域名，形如 `https://xxx.workers.dev`）
+Base URL：从 `Config.swift` 的 `API_BASE_URL` 读取。真实域名是 **`https://a-chai.de5.net`**（Custom Domain，大陆可直连）。**不要**用 `*.workers.dev`，该域在大陆被 DNS 污染 + SNI 阻断。
 
 鉴权：除 `/health` 外，所有请求都带
 ```
@@ -334,5 +334,5 @@ README-iPad.md                 见下
 |---|---|
 | 为什么分两阶段 | iPad 的 Swift Playgrounds **无法创建 Widget Extension target**，App Group / Keychain Sharing / entitlements 也都得在 Xcode 里配。所以阶段 B 只能出源码，回 Mac 才构建 |
 | 想省事的话 | 阶段 A 的产物可以直接在 Playgrounds 里当「单页 App」跑起来看真实数据，先把 `Config.swift` 的域名和 token 填上就行 |
-| 域名 | 你已上线，填 `https://<你的真实域名>`；自检 `curl -s $BASE/health` 应能看到 `"histRetentionDays":7` |
+| 域名 | 填 `https://a-chai.de5.net`（大陆可直连；`*.workers.dev` 被污染，别用）；自检 `curl -s $BASE/health` 应能看到 `"histRetentionDays":7` |
 | 后续想加「指定设备」 | 需要 `AppIntentConfiguration`，同样只能在 Xcode 里做 |

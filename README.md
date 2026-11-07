@@ -29,7 +29,8 @@
 示例：
 
 ```bash
-BASE=https://cross-device-sync.<你的子域>.workers.dev
+BASE=https://a-chai.de5.net        # 自定义域（大陆可直连）
+# 备份入口：https://cross-device-sync.beluga233.workers.dev （大陆被污染，仅境外/代理可用）
 TOKEN=<你的 SYNC_TOKEN>
 
 # 写入
@@ -114,7 +115,7 @@ npm run dev
 
 - Workers KV 是**最终一致**的（同区域通常毫秒级生效，跨区域可能滞后数十秒），不适合强一致场景；需要强一致请改用 Durable Objects。
 - 版本号校验是「先读后写」实现的乐观锁，不是原子事务；高并发写入同一键时仍可能互相覆盖。
-- 大陆直连见 [`docs/ACCESS_CN.md`](./docs/ACCESS_CN.md)：`*.workers.dev` 在国内被 DNS 污染，**需要绑自有域名**。
+- 大陆直连见 [`docs/ACCESS_CN.md`](./docs/ACCESS_CN.md)：`*.workers.dev` 在国内被 DNS 污染 + SNI 阻断，**已绑自有域名 `https://a-chai.de5.net`**（`wrangler.toml` 顶层 `routes`）。注意 `routes` 必须写在所有 `[table]` 之前，否则会被解析成 `observability.routes` 而静默失效。
 - 请不要把 `SYNC_TOKEN` 提交进仓库，用 `wrangler secret` 或平台环境变量管理。
 
 ## 五、回归测试

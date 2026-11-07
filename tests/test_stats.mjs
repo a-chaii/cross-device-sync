@@ -41,7 +41,7 @@ function mkEnv() {
   };
 }
 
-const B = 'https://cross-device-sync.beluga233.workers.dev';
+const B = 'https://a-chai.de5.net';
 const call = async (path, token = TOKEN) => {
   const headers = {};
   if (token) headers['x-sync-token'] = token;

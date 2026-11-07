@@ -47,7 +47,9 @@
 
 ### 3. 后端契约（严格照抄，字段名一个都不能改）
 
-Base URL：`https://<你的-worker-域名>`（从 `Config.xcconfig` 的 `API_BASE_URL` 注入）
+Base URL：**`https://a-chai.de5.net`**（从 `Config.xcconfig` 的 `API_BASE_URL` 注入）
+
+> ⚠️ **不要用 `*.workers.dev` 域名**。该域名在中国大陆被 DNS 污染 + SNI 阻断，模拟器/真机都可能直接连不上。请一律用上面这个自定义域名；它绑定在同一个 Worker 上，接口与返回值完全一致。
 
 鉴权头（**所有**请求都要带）：
 ```
@@ -420,7 +422,7 @@ GET /dash/stats?key=watch/battery&range=86400000
 | §9 验收 12 条全绿 | `交付` |
 
 ```bash
-curl -X PUT https://cross-device-sync.beluga233.workers.dev/status/ios \
+curl -X PUT https://a-chai.de5.net/status/ios \
   -H "x-sync-token: $SYNC_TOKEN" -H "content-type: application/json" \
   -d '{"value":{"id":"ios","name":"iOS 客户端","role":"只读 App + 小组件","phase":"M3 自动刷新已验收","doing":"在做大号组件的 24h 曲线","next":["§9 验收 12 条"],"blockers":[],"owner":"iOS-AI","updatedAt":1793969700000}}'
 ```
