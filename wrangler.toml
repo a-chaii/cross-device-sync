@@ -17,3 +17,9 @@ id = "a04c41a10fc748e7a34e631d5a29e27e"
 
 [observability]
 enabled = true
+
+# ── 大陆访问：绑自有域名（推荐，workers.dev 在国内被 DNS 污染）──────────────
+# 前提：域名已托管到 Cloudflare（注册商处把 NS 改成 xxx.ns.cloudflare.com）。
+# 取消下面注释，把 sync.example.com 换成你的域名，再 npx wrangler deploy 即可；
+# Custom Domain 会自动签发证书，workers.dev 与自定义域同时可用。
+# routes = [{ pattern = "sync.example.com", custom_domain = true }]

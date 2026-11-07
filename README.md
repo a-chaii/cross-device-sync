@@ -114,6 +114,7 @@ npm run dev
 
 - Workers KV 是**最终一致**的（同区域通常毫秒级生效，跨区域可能滞后数十秒），不适合强一致场景；需要强一致请改用 Durable Objects。
 - 版本号校验是「先读后写」实现的乐观锁，不是原子事务；高并发写入同一键时仍可能互相覆盖。
+- 大陆直连见 [`docs/ACCESS_CN.md`](./docs/ACCESS_CN.md)：`*.workers.dev` 在国内被 DNS 污染，**需要绑自有域名**。
 - 请不要把 `SYNC_TOKEN` 提交进仓库，用 `wrangler secret` 或平台环境变量管理。
 
 ## 五、回归测试
