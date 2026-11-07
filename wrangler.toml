@@ -2,6 +2,7 @@ name = "cross-device-sync"
 main = "src/index.ts"
 compatibility_date = "2025-01-01"
 routes = [{ pattern = "a-chai.de5.net", custom_domain = true }]
+workers_dev = true
 
 # 预览/生产环境共用的变量（非机密）
 [vars]
