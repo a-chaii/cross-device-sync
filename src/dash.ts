@@ -964,7 +964,7 @@ function drawBars(its){
         grd.addColorStop(0,'rgba(52,211,153,.95)');
         grd.addColorStop(1,'rgba(16,185,129,.30)');
       }else{
-        grd.addColorStop(0,'rgba(96,165,250,.95)');
+        grd.addColorStop(0,acc(.95));
         grd.addColorStop(1,acc(.30));
       }
       g.fillStyle=grd;
