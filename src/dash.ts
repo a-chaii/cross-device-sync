@@ -366,7 +366,7 @@ function loginHtml(err?: string): string {
   input{width:100%;padding:11px 13px;border-radius:11px;border:1px solid var(--line);
         background:rgba(8,12,22,.7);color:var(--txt);font-size:1rem;letter-spacing:.14em;
         outline:none;transition:border-color .15s}
-  input:focus{border-color:rgba(59,130,246,.65)}
+  input:focus{border-color:rgba(var(--accent-rgb),.65)}
   button{width:100%;margin-top:14px;padding:11px;border:0;border-radius:11px;cursor:pointer;
          background:linear-gradient(180deg,#3b82f6,#2563eb);color:#fff;font-size:.95rem;
          font-weight:600;transition:filter .15s}
@@ -404,10 +404,10 @@ function dashHtml(): string {
 <meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover">
 <meta name="color-scheme" content="dark">
 <meta name="robots" content="noindex,nofollow">
-<title>中转看板 · 设备续航</title>
+<title>柴的设备续航看板</title>
 <style>
   :root{--bg:#0b0f19;--card:rgba(18,24,38,.82);--line:rgba(120,150,255,.16);
-        --txt:#e6ecf8;--muted:#8b98b3;--blue:#3b82f6;--red:#f87171;--green:#34d399}
+        --txt:#e6ecf8;--muted:#8b98b3;--blue:#3b82f6;--red:#f87171;--green:#34d399;--accent-rgb:59,130,246;--accent:#3b82f6}
   *{box-sizing:border-box}
   body{margin:0;background:radial-gradient(900px 500px at 50% -10%,#16233f 0%,var(--bg) 60%);
        background-attachment:fixed;color:var(--txt);
@@ -420,11 +420,11 @@ function dashHtml(): string {
   .spacer{flex:1}
   select{appearance:none;background:rgba(18,24,38,.9);color:var(--txt);font-size:.78rem;
          border:1px solid var(--line);border-radius:9px;padding:7px 10px;outline:none}
-  select:focus{border-color:rgba(59,130,246,.6)}
+  select:focus{border-color:rgba(var(--accent-rgb),.6)}
   select:disabled{opacity:.42;cursor:not-allowed}
-  button.ghost{background:rgba(59,130,246,.16);color:#cfe0ff;font-size:.78rem;cursor:pointer;
-               border:1px solid rgba(59,130,246,.35);border-radius:9px;padding:7px 12px}
-  button.ghost:hover{background:rgba(59,130,246,.26)}
+  button.ghost{background:rgba(var(--accent-rgb),.16);color:#cfe0ff;font-size:.78rem;cursor:pointer;
+               border:1px solid rgba(var(--accent-rgb),.35);border-radius:9px;padding:7px 12px}
+  button.ghost:hover{background:rgba(var(--accent-rgb),.26)}
   .panel{background:var(--card);border:1px solid var(--line);border-radius:16px;
          padding:14px 14px 10px;margin-bottom:14px;
          -webkit-backdrop-filter:blur(10px);backdrop-filter:blur(10px);
@@ -460,7 +460,7 @@ function dashHtml(): string {
        overflow:hidden;align-self:center}
   .seg button{font:inherit;font-size:.66rem;line-height:1.6;background:transparent;border:0;
               color:var(--muted);padding:2px 9px;cursor:pointer}
-  .seg button.on{background:rgba(59,130,246,.22);color:#dbeafe}
+  .seg button.on{background:rgba(var(--accent-rgb),.22);color:#dbeafe}
   .mod{font:11px/1.5 ui-monospace,SFMono-Regular,Menlo,monospace;color:#94a3b8;
     background:rgba(148,163,184,.14);border-radius:4px;padding:1px 5px;white-space:nowrap}
   .legend{display:flex;flex-wrap:wrap;gap:6px 12px;margin:-2px 0 8px;font-size:.7rem}
@@ -499,6 +499,25 @@ function dashHtml(): string {
         font-size:.72rem;border:1px solid var(--line);background:rgba(18,24,38,.78);
         border-radius:999px;padding:5px 11px;transition:color .2s,border-color .2s}
   .back:hover{color:var(--txt);border-color:rgba(120,150,255,.34)}
+  /* ── 莫奈取色（Monet）开关：默认关闭，状态记在 localStorage ── */
+  #btnMonet{background:rgba(var(--accent-rgb),.14);color:#cfe0ff;font-size:.78rem;cursor:pointer;
+            border:1px solid rgba(var(--accent-rgb),.34);border-radius:9px;padding:7px 12px;
+            transition:background .25s,border-color .25s,color .25s,box-shadow .25s}
+  #btnMonet:hover{background:rgba(var(--accent-rgb),.24)}
+  #btnMonet[aria-pressed="true"]{background:rgba(var(--accent-rgb),.34);color:#fff;
+            box-shadow:0 0 0 1px rgba(var(--accent-rgb),.55),0 0 18px -6px rgba(var(--accent-rgb),.9)}
+  body.monet{--bg:var(--m-bg,#0b0f19);--card:var(--m-card,rgba(18,24,38,.82));
+             --line:var(--m-line,rgba(120,150,255,.16));--txt:var(--m-txt,#e6ecf8);
+             --muted:var(--m-muted,#8b98b3);
+             background:radial-gradient(900px 500px at 50% -10%,var(--m-glow,#16233f) 0%,var(--m-bg,#0b0f19) 60%)}
+  body.monet .panel,body.monet .card{border-color:rgba(var(--accent-rgb),.26)}
+  body.monet .panel,body.monet .card,body.monet #btnMonet{transition:background .3s,border-color .3s,color .3s}
+  body.monet::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:9;opacity:.05;
+             background:repeating-linear-gradient(to bottom,rgba(255,255,255,.6) 0 1px,transparent 1px 3px)}
+  .ninja{display:inline-block;margin-left:7px;font-size:.85em;animation:ninja-spin 7s linear infinite;
+         filter:drop-shadow(0 0 7px rgba(var(--accent-rgb),.55))}
+  @keyframes ninja-spin{to{transform:rotate(360deg)}}
+  @media (prefers-reduced-motion: reduce){.ninja{animation:none}}
 </style>
 </head>
 <body>
@@ -506,7 +525,7 @@ function dashHtml(): string {
   <a class="back" href="/">&larr; 控制台</a>
   <header>
     <div>
-      <h1>设备续航看板</h1>
+      <h1>柴的设备续航看板<span class="ninja" title="图灵派 · 柴">🍥</span></h1>
       <p class="sub" id="meta">加载中…</p>
     </div>
     <div class="spacer"></div>
@@ -521,6 +540,7 @@ function dashHtml(): string {
       <option value="0">全部</option>
     </select>
     <label class="chk" title="勾选后直接取服务器保留的全部历史（最近 7 天），且不做「充满电后」裁剪"><input type="checkbox" id="chkAll">全部历史</label>
+    <button id="btnMonet" type="button" aria-pressed="false" title="莫奈取色：从一张壁纸里提取主色，生成 Material 3 风格配色（首次开启会请你选一张图）">🎨 莫奈</button>
     <button class="ghost" id="btnReload" type="button">刷新</button>
   </header>
   <div class="cards" id="cards"></div>
@@ -561,7 +581,7 @@ function dashHtml(): string {
       </table>
     </div>
   </div>
-  <footer>WatchSync · 只读看板 · 每设备独立键位</footer>
+  <footer>柴的设备续航看板 · 只读 · 每设备独立键位 · 图灵派 🍥</footer>
 </div>
 <script>
 (function(){
@@ -948,7 +968,7 @@ function drawBars(its){
         grd.addColorStop(1,'rgba(16,185,129,.30)');
       }else{
         grd.addColorStop(0,'rgba(96,165,250,.95)');
-        grd.addColorStop(1,'rgba(59,130,246,.30)');
+        grd.addColorStop(1,'rgba(var(--accent-rgb),.30)');
       }
       g.fillStyle=grd;
       g.beginPath();
@@ -1365,6 +1385,106 @@ window.addEventListener('resize',function(){
 });
 bindTip($('chart'),$('tip'));
 bindTip($('bars'),$('tip2'));
+
+/* ────────────────────────────────────────────────────────────────
+ * 莫奈取色（Monet）：把一张壁纸量化成一个主色相，再按 Material 3 的
+ * 音调规则铺出整套深色色板。开关状态记在 localStorage，不上传任何东西
+ * （图片只在本地 canvas 里过一遍，随即丢弃）。
+ * ──────────────────────────────────────────────────────────────── */
+var MK='chai_monet_hue_v1';
+function hueOf(r,g,b){
+  r/=255;g/=255;b/=255;
+  var mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn,h=0;
+  if(!d)return -1;
+  if(mx===r)h=((g-b)/d)%6;else if(mx===g)h=(b-r)/d+2;else h=(r-g)/d+4;
+  h*=60;if(h<0)h+=360;return h;
+}
+function hsl2rgb(h,s,l){
+  h=((h%360)+360)%360;s=Math.max(0,Math.min(1,s));l=Math.max(0,Math.min(1,l));
+  var c=(1-Math.abs(2*l-1))*s,x=c*(1-Math.abs((h/60)%2-1)),m=l-c/2,r=0,g=0,b=0;
+  if(h<60){r=c;g=x;}else if(h<120){r=x;g=c;}else if(h<180){g=c;b=x;}
+  else if(h<240){g=x;b=c;}else if(h<300){r=x;b=c;}else{r=c;b=x;}
+  return [Math.round((r+m)*255),Math.round((g+m)*255),Math.round((b+m)*255)];
+}
+function hsla(h,s,l,a){
+  var c=hsl2rgb(h,s,l);
+  return 'rgba('+c[0]+','+c[1]+','+c[2]+','+(a==null?1:a)+')';
+}
+/* 48x48 缩略图里按 12° 分箱统计色相，取最“有存在感”的那一箱。
+   刻意跳过近黑与近灰，否则壁纸背景会把主色吃掉。 */
+function hueFromImage(im){
+  var cv=document.createElement('canvas');cv.width=48;cv.height=48;
+  var g=cv.getContext('2d');g.drawImage(im,0,0,48,48);
+  var d=g.getImageData(0,0,48,48).data,i,bin={},tot=0;
+  function vote(r,gg,b,strict){
+    var mx=Math.max(r,gg,b),mn=Math.min(r,gg,b);
+    if(strict){if(mx<40)return;if(mx-mn<18)return;}
+    var h=hueOf(r,gg,b);if(h<0)return;
+    var k=Math.round(h/12)%30;bin[k]=(bin[k]||0)+1;tot++;
+  }
+  for(i=0;i<d.length;i+=4){if(d[i+3]>=128)vote(d[i],d[i+1],d[i+2],true);}
+  if(!tot){for(i=0;i<d.length;i+=4){if(d[i+3]>=128)vote(d[i],d[i+1],d[i+2],false);}}
+  var best=210,bn=-1;
+  for(var k in bin){if(bin[k]>bn){bn=bin[k];best=(+k)*12;}}
+  return best;
+}
+function seriesOf(h){
+  var out=[],i;
+  for(i=0;i<8;i++){var c=hsl2rgb(h+i*42,.68,.66);out.push('rgb('+c[0]+','+c[1]+','+c[2]+')');}
+  return out;
+}
+function applyHue(h,quiet){
+  var cp=document.documentElement.style,a=hsl2rgb(h,.66,.62);
+  cp.setProperty('--m-bg',hsla(h,.34,.05));
+  cp.setProperty('--m-glow',hsla(h,.40,.15));
+  cp.setProperty('--m-card',hsla(h,.28,.10,.84));
+  cp.setProperty('--m-line',hsla(h,.44,.30,.42));
+  cp.setProperty('--m-txt',hsla(h,.24,.94));
+  cp.setProperty('--m-muted',hsla(h,.18,.67));
+  cp.setProperty('--accent','rgb('+a[0]+','+a[1]+','+a[2]+')');
+  cp.setProperty('--accent-rgb',a[0]+','+a[1]+','+a[2]);
+  COLOR=seriesOf(h);
+  document.body.classList.add('monet');
+  var mb=$('btnMonet');if(mb)mb.setAttribute('aria-pressed','true');
+  localStorage.setItem(MK,String(Math.round(h)));
+  if(!quiet&&S.data)renderAll();
+}
+function monetOff(){
+  document.body.classList.remove('monet');
+  document.documentElement.style.cssText='';
+  COLOR=['#60a5fa','#34d399','#fbbf24','#f472b6','#22d3ee','#a78bfa','#fb923c','#4ade80'];
+  var mb=$('btnMonet');if(mb)mb.setAttribute('aria-pressed','false');
+  localStorage.removeItem(MK);
+  if(S.data)renderAll();
+}
+function pickWall(){
+  var inp=document.createElement('input');
+  inp.type='file';inp.accept='image/*';
+  inp.onchange=function(){
+    var f=inp.files&&inp.files[0];if(!f)return;
+    var fr=new FileReader();
+    fr.onload=function(){
+      var im=new Image();
+      im.onload=function(){applyHue(hueFromImage(im));};
+      im.onerror=function(){$('meta').textContent='这张图读不出来，换一张试试';};
+      im.src=fr.result;
+    };
+    fr.readAsDataURL(f);
+  };
+  inp.click();
+}
+(function(){
+  var mb=$('btnMonet');if(!mb)return;
+  var saved=localStorage.getItem(MK);
+  if(saved!==null)applyHue(+saved,true);
+  mb.onclick=function(ev){
+    var on=document.body.classList.contains('monet');
+    if(on&&!ev.shiftKey){monetOff();return;}      /* 再点一下关掉 */
+    if(ev.shiftKey||!on){pickWall();}             /* 首次 / Shift+点击：换壁纸 */
+  };
+})();
+console.log('%c🍥 图灵派 · 柴的设备续航看板','color:#f472b6;font-weight:700');
+
 load();
 setInterval(load,60000);
 })();

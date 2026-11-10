@@ -34,11 +34,37 @@ import {
   handleLogin,
   histKey,
   history as dashHistory,
+  isDeviceKey,
   loginPage,
   page as dashPage,
   HIST_TTL_MS,
 } from './dash';
 import { statsOf } from './stats';
+
+/**
+ * 写入去抖（v11.8）：设备电量键在「业务字段没变」且「距上次写入不足 COALESCE_MS」时
+ * 不再写 KV，只把旧记录回给客户端。
+ *
+ * 为什么：手表端约 3.2 分钟上报一次，而电量半小时才降 1%。每次 PUT 都写一次主记录，
+ * 一天就是 ~475 次写，加上历史采样 ~40 次 ≈ 515 次，正好在 UTC 11:30（北京时间
+ * 19:30）越过 KV 免费额度 1000 写/天的 50% 告警线 —— 这就是那封邮件的来源。
+ *
+ * 保留每 COALESCE_MS 一次的心跳写，这样 updatedAt 不会无限陈旧，
+ * 看板上的「链路 N 分钟前」仍然可信。
+ */
+const COALESCE_MS = 10 * 60 * 1000;
+
+/** 去掉时间类字段后的稳定指纹：只有它变了才算「值真的变了」 */
+function bizPrint(v: unknown): string {
+  if (v && typeof v === 'object' && !Array.isArray(v)) {
+    const o = v as Record<string, unknown>;
+    const ks = Object.keys(o)
+      .filter((k) => k !== 'ts' && k !== 'updatedAt' && k !== 'at')
+      .sort();
+    return JSON.stringify(ks.map((k) => [k, o[k]]));
+  }
+  return JSON.stringify(v === undefined ? null : v);
+}
 
 export interface Env {
   SYNC_KV: KVNamespace;
@@ -299,6 +325,20 @@ export default {
         }
       }
 
+      // 写入去抖（省 KV 写额度）：电量/充电状态都没变，且上次写还在 COALESCE_MS 内，
+      // 直接把旧记录回给客户端，标 x-sync-coalesced:1 —— 不产生 KV 写，也不记历史点。
+      if (record && isDeviceKey(key)) {
+        const lastMs = Date.parse(record.updatedAt);
+        const ageMs = Number.isNaN(lastMs) ? Infinity : Date.now() - lastMs;
+        if (ageMs >= 0 && ageMs < COALESCE_MS && bizPrint(record.value) === bizPrint(value)) {
+          return json(record, 200, {
+            ...cors,
+            'x-sync-version': String(record.version),
+            'x-sync-updated': record.updatedAt,
+            'x-sync-coalesced': '1',
+          });
+        }
+      }
       const next: SyncRecord = {
         key,
         value,

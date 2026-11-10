@@ -308,6 +308,7 @@ const DOCS_HTML = `<!doctype html>
 <b>GET</b>    /status                        <i>token 或看板 cookie · 各端状态聚合</i>
 <b>GET</b>    /dev · /docs                   <i>协作台（需登录）· 本文档（公开）</i></pre>
     <p class="note">鉴权二选一：请求头 <code>x-sync-token</code>；或先 <code>POST /dash</code> 用 <code>DASH_PWD</code> 换 <code>ws_dash</code> cookie。原生端<b>不要</b>内置看板密码。</p>
+    <p class="note"><b>写入去抖（v11.8，省 KV 写额度）</b>：<code>PUT</code> 一台设备的电量时，若<b>业务字段没变</b>（<code>level</code> / <code>charging</code> 等，忽略 <code>ts</code>）且距上次成功写入不足 <b>10 分钟</b>，服务端<b>不写 KV</b>，直接把旧记录回给你并带响应头 <code>x-sync-coalesced: 1</code>（<code>version</code> 不涨、<code>updatedAt</code> 不变）。这是有意为之：手表端约 3 分钟上报一次、电量半小时才降 1%，不去抖的话一天 ~515 次写，会撞 KV 免费额度。客户端看到 <code>x-sync-coalesced</code> 应当<b>当作成功</b>，不要重试。每 10 分钟仍会有一次「心跳写」保证 <code>updatedAt</code> 不过期。<code>status/*</code> 等协作状态键<b>不去抖</b>，必须实时。</p>
   </div>
 
   <div class="h2">3 · 历史与采样</div>

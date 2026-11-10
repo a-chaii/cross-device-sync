@@ -113,5 +113,36 @@ chk('不存设备 200', r.res.status === 200, r.res.status);
 chk('不存设备 status=noData', r.body.device.status === 'noData', r.body.device.status);
 chk('不存设备 display 无数据', r.body.device.display.title === '无数据', r.body.device.display.title);
 
+// ── v11.8 写入去抖（省 KV 写额度）──────────────────────────────────
+// 手表端约 3 分钟上报一次、电量半小时才降 1%，若每次都落库，一天就是 ~515 次写，
+// 正好在 19:30 撞上 KV 免费额度 50% 的告警。规则：业务字段没变 + 距上次写 <10 分钟 → 不写。
+const env2 = mkEnv();
+async function putRaw(key, value) {
+  const res = await handler(new Request(B + '/' + key, {
+    method: 'PUT',
+    headers: { 'x-sync-token': TOKEN, 'content-type': 'application/json' },
+    body: JSON.stringify({ value }),
+  }), env2, {});
+  let body = null;
+  try { body = await res.clone().json(); } catch { body = null; }
+  return { res, body };
+}
+let q;
+q = await putRaw('dev/abcdef', { level: 50, charging: 0, ts: 111 });
+chk('首次 PUT 落库 v1', q.res.status === 200 && q.body && q.body.version === 1, q.body && q.body.version);
+q = await putRaw('dev/abcdef', { level: 50, charging: 0, ts: 222 });
+chk('同值（仅 ts 变）被去抖', q.res.headers.get('x-sync-coalesced') === '1', q.res.headers.get('x-sync-coalesced'));
+chk('去抖不涨版本', q.body && q.body.version === 1, q.body && q.body.version);
+chk('去抖回带旧 updatedAt', q.res.headers.get('x-sync-updated') !== null);
+q = await putRaw('dev/abcdef', { level: 49, charging: 0, ts: 333 });
+chk('电量变了要落库 v2', q.body && q.body.version === 2, q.body && q.body.version);
+chk('落库不带 coalesced 头', q.res.headers.get('x-sync-coalesced') === null);
+q = await putRaw('dev/abcdef', { level: 49, charging: 1, ts: 444 });
+chk('充电态翻转要落库 v3', q.body && q.body.version === 3, q.body && q.body.version);
+// 协作状态必须实时，不能被去抖吞掉
+await putRaw('status/ios', { phase: 'M2', ts: 1 });
+q = await putRaw('status/ios', { phase: 'M2', ts: 2 });
+chk('status/* 不去抖（版本照涨）', q.body && q.body.version === 2, q.body && q.body.version);
+
 console.log('\npass=' + pass + ' fail=' + fail);
 if (fail) process.exit(1);
