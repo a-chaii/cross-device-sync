@@ -25,9 +25,13 @@ chk('含 fmtDur', js.includes('function fmtDur'));
 chk('时长空格口径：时/分之间留空格', js.includes("' '+mm+' 分'"), js.includes("mm+' 分") ? '旧口径未改' : '未匹配');
 chk('移除列举：不含 6时25分 形式', !js.includes("h+' 时'+mm+' 分'"));
 chk('含掉电速率渲染', js.includes('%/h'));
-// v11.8 起允许白名单 emoji：🍥（图灵派徽章）与 🎨（莫奈取色按钮），其余仍然禁止
-const htmlNoEmoji = html.replace(/[\u{1F365}\u{1F3A8}]/gu, '');
-chk('不含白名单外的 emoji', !/[\u{1F300}-\u{1FAFF}]/u.test(htmlNoEmoji));
+// v11.8.1 回归：canvas 不认 CSS 变量（addColorStop 会抛 SyntaxError，整页渲染中断）
+// canvas 的 addColorStop/fillStyle 不解析 CSS 变量，混用会抛 SyntaxError 并中断整页渲染
+chk('canvas 里不用 css 变量色', !js.includes('var(--accent') && !/addColorStop\([^)]*var\(--/.test(js));
+chk('强调色走 acc() 拼接', js.includes('function acc(a)') && js.includes('acc(.30)'));
+chk('莫奈读系统配色而非选图', js.includes("/dash/theme") && !js.includes('FileReader'));
+chk('页头标题已个性化', html.includes('柴的设备续航看板'));
+chk('不含 emoji', !/[\u{1F300}-\u{1FAFF}]/u.test(html));
 chk('不承诺每分钟同步', !/每分钟|实时秒级/.test(html));
 
 const lg = loginPage('密码错了');

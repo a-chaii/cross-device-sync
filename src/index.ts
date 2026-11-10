@@ -14,6 +14,7 @@
  *   GET    /dash/data        -> 看板数据 JSON（需看板 cookie）
  *   GET    /dash/hist?key=   -> 单设备历史 JSON（需 x-sync-token，供 iOS/原生端）
  *   GET    /dash/stats?key=  -> 预测统计 JSON（需 x-sync-token）：速率/续航/充电段/文案已算好
+ *   GET    /dash/theme      -> 看板主题色 JSON（需看板 cookie）：读 theme/monet 里的系统强调色
  *                               不带 key 返回全部设备；?points=1 附带曲线点；?all=1 用全部采样
  *   GET    /:key             -> 读取单条记录
  *   HEAD   /:key             -> 只返回版本信息（响应头 X-Sync-Version / X-Sync-Updated）
@@ -193,6 +194,23 @@ export default {
       return dashData(env, k, range);
     }
 
+    // /dash/theme：看板读「系统配色」（theme/monet 由 Android 采集端推送）
+    // 页面的莫奈取色不猜图、不上传，只认系统给的强调色。
+    if (path === '/dash/theme' && method === 'GET') {
+      if (!(await check(request, env))) {
+        return json({ error: 'unauthorized', hint: '请先访问 /dash 登录' }, 401);
+      }
+      const rec = (await env.SYNC_KV.get('theme/monet', 'json')) as SyncRecord | null;
+      return json(
+        {
+          key: 'theme/monet',
+          value: rec ? rec.value ?? null : null,
+          updatedAt: rec ? rec.updatedAt : null,
+        },
+        200,
+        { 'cache-control': 'no-store' },
+      );
+    }
     if (!authorized(request, env)) {
       return json({ error: 'unauthorized', hint: '请在请求头携带正确的 x-sync-token' }, 401, cors);
     }

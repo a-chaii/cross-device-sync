@@ -512,12 +512,6 @@ function dashHtml(): string {
              background:radial-gradient(900px 500px at 50% -10%,var(--m-glow,#16233f) 0%,var(--m-bg,#0b0f19) 60%)}
   body.monet .panel,body.monet .card{border-color:rgba(var(--accent-rgb),.26)}
   body.monet .panel,body.monet .card,body.monet #btnMonet{transition:background .3s,border-color .3s,color .3s}
-  body.monet::before{content:"";position:fixed;inset:0;pointer-events:none;z-index:9;opacity:.05;
-             background:repeating-linear-gradient(to bottom,rgba(255,255,255,.6) 0 1px,transparent 1px 3px)}
-  .ninja{display:inline-block;margin-left:7px;font-size:.85em;animation:ninja-spin 7s linear infinite;
-         filter:drop-shadow(0 0 7px rgba(var(--accent-rgb),.55))}
-  @keyframes ninja-spin{to{transform:rotate(360deg)}}
-  @media (prefers-reduced-motion: reduce){.ninja{animation:none}}
 </style>
 </head>
 <body>
@@ -525,7 +519,7 @@ function dashHtml(): string {
   <a class="back" href="/">&larr; 控制台</a>
   <header>
     <div>
-      <h1>柴的设备续航看板<span class="ninja" title="图灵派 · 柴">🍥</span></h1>
+      <h1>柴的设备续航看板</h1>
       <p class="sub" id="meta">加载中…</p>
     </div>
     <div class="spacer"></div>
@@ -540,7 +534,7 @@ function dashHtml(): string {
       <option value="0">全部</option>
     </select>
     <label class="chk" title="勾选后直接取服务器保留的全部历史（最近 7 天），且不做「充满电后」裁剪"><input type="checkbox" id="chkAll">全部历史</label>
-    <button id="btnMonet" type="button" aria-pressed="false" title="莫奈取色：从一张壁纸里提取主色，生成 Material 3 风格配色（首次开启会请你选一张图）">🎨 莫奈</button>
+    <button id="btnMonet" type="button" aria-pressed="false" title="莫奈取色：读取采集端推送的系统配色（theme/monet），按 Material 3 规则铺满整站">莫奈取色</button>
     <button class="ghost" id="btnReload" type="button">刷新</button>
   </header>
   <div class="cards" id="cards"></div>
@@ -581,12 +575,15 @@ function dashHtml(): string {
       </table>
     </div>
   </div>
-  <footer>柴的设备续航看板 · 只读 · 每设备独立键位 · 图灵派 🍥</footer>
+  <footer>柴的设备续航看板 · 只读 · 每设备独立键位</footer>
 </div>
 <script>
 (function(){
 'use strict';
 var COLOR=['#60a5fa','#34d399','#fbbf24','#f472b6','#22d3ee','#a78bfa','#fb923c','#4ade80'];
+// canvas 不认 CSS 变量（addColorStop 会抛 SyntaxError），强调色必须走 JS 字符串。
+var ACC='59,130,246';
+function acc(a){return 'rgba('+ACC+','+a+')';}
 var S={key:'*',range:604800000,data:null,hidden:{},touched:{},all:false,mode:'dis'};
 function $(id){return document.getElementById(id);}
 function pad(n){return n<10?'0'+n:''+n;}
@@ -968,7 +965,7 @@ function drawBars(its){
         grd.addColorStop(1,'rgba(16,185,129,.30)');
       }else{
         grd.addColorStop(0,'rgba(96,165,250,.95)');
-        grd.addColorStop(1,'rgba(var(--accent-rgb),.30)');
+        grd.addColorStop(1,acc(.30));
       }
       g.fillStyle=grd;
       g.beginPath();
@@ -1387,11 +1384,11 @@ bindTip($('chart'),$('tip'));
 bindTip($('bars'),$('tip2'));
 
 /* ────────────────────────────────────────────────────────────────
- * 莫奈取色（Monet）：把一张壁纸量化成一个主色相，再按 Material 3 的
- * 音调规则铺出整套深色色板。开关状态记在 localStorage，不上传任何东西
- * （图片只在本地 canvas 里过一遍，随即丢弃）。
+ * 莫奈取色（Monet）：不猜、不选图，直接读「系统给的」主色。
+ * 采集端（Android）把 Material You 的系统强调色推到 KV 的 theme/monet，
+ * 本页通过 GET /dash/theme 取回，再按 M3 音调规则铺成整套深色色板。
  * ──────────────────────────────────────────────────────────────── */
-var MK='chai_monet_hue_v1';
+var MK='chai_monet_on_v2';
 function hueOf(r,g,b){
   r/=255;g/=255;b/=255;
   var mx=Math.max(r,g,b),mn=Math.min(r,g,b),d=mx-mn,h=0;
@@ -1410,31 +1407,16 @@ function hsla(h,s,l,a){
   var c=hsl2rgb(h,s,l);
   return 'rgba('+c[0]+','+c[1]+','+c[2]+','+(a==null?1:a)+')';
 }
-/* 48x48 缩略图里按 12° 分箱统计色相，取最“有存在感”的那一箱。
-   刻意跳过近黑与近灰，否则壁纸背景会把主色吃掉。 */
-function hueFromImage(im){
-  var cv=document.createElement('canvas');cv.width=48;cv.height=48;
-  var g=cv.getContext('2d');g.drawImage(im,0,0,48,48);
-  var d=g.getImageData(0,0,48,48).data,i,bin={},tot=0;
-  function vote(r,gg,b,strict){
-    var mx=Math.max(r,gg,b),mn=Math.min(r,gg,b);
-    if(strict){if(mx<40)return;if(mx-mn<18)return;}
-    var h=hueOf(r,gg,b);if(h<0)return;
-    var k=Math.round(h/12)%30;bin[k]=(bin[k]||0)+1;tot++;
-  }
-  for(i=0;i<d.length;i+=4){if(d[i+3]>=128)vote(d[i],d[i+1],d[i+2],true);}
-  if(!tot){for(i=0;i<d.length;i+=4){if(d[i+3]>=128)vote(d[i],d[i+1],d[i+2],false);}}
-  var best=210,bn=-1;
-  for(var k in bin){if(bin[k]>bn){bn=bin[k];best=(+k)*12;}}
-  return best;
-}
 function seriesOf(h){
   var out=[],i;
   for(i=0;i<8;i++){var c=hsl2rgb(h+i*42,.68,.66);out.push('rgb('+c[0]+','+c[1]+','+c[2]+')');}
   return out;
 }
-function applyHue(h,quiet){
-  var cp=document.documentElement.style,a=hsl2rgb(h,.66,.62);
+/* rgb 数组 → 整套色板。accent 用系统原色，其余按色相铺 */
+function applyAccent(rgb,quiet){
+  var h=hueOf(rgb[0],rgb[1],rgb[2]);
+  if(h<0)h=210;
+  var cp=document.documentElement.style,a=[rgb[0]|0,rgb[1]|0,rgb[2]|0];
   cp.setProperty('--m-bg',hsla(h,.34,.05));
   cp.setProperty('--m-glow',hsla(h,.40,.15));
   cp.setProperty('--m-card',hsla(h,.28,.10,.84));
@@ -1443,48 +1425,51 @@ function applyHue(h,quiet){
   cp.setProperty('--m-muted',hsla(h,.18,.67));
   cp.setProperty('--accent','rgb('+a[0]+','+a[1]+','+a[2]+')');
   cp.setProperty('--accent-rgb',a[0]+','+a[1]+','+a[2]);
+  ACC=a[0]+','+a[1]+','+a[2];          /* canvas 用这个 */
   COLOR=seriesOf(h);
   document.body.classList.add('monet');
   var mb=$('btnMonet');if(mb)mb.setAttribute('aria-pressed','true');
-  localStorage.setItem(MK,String(Math.round(h)));
+  localStorage.setItem(MK,'1');
   if(!quiet&&S.data)renderAll();
 }
 function monetOff(){
   document.body.classList.remove('monet');
   document.documentElement.style.cssText='';
+  ACC='59,130,246';
   COLOR=['#60a5fa','#34d399','#fbbf24','#f472b6','#22d3ee','#a78bfa','#fb923c','#4ade80'];
   var mb=$('btnMonet');if(mb)mb.setAttribute('aria-pressed','false');
   localStorage.removeItem(MK);
   if(S.data)renderAll();
 }
-function pickWall(){
-  var inp=document.createElement('input');
-  inp.type='file';inp.accept='image/*';
-  inp.onchange=function(){
-    var f=inp.files&&inp.files[0];if(!f)return;
-    var fr=new FileReader();
-    fr.onload=function(){
-      var im=new Image();
-      im.onload=function(){applyHue(hueFromImage(im));};
-      im.onerror=function(){$('meta').textContent='这张图读不出来，换一张试试';};
-      im.src=fr.result;
-    };
-    fr.readAsDataURL(f);
-  };
-  inp.click();
+function loadTheme(cb){
+  fetch('/dash/theme',{credentials:'same-origin',cache:'no-store'}).then(function(r){
+    return r.ok?r.json():null;
+  }).then(function(j){
+    cb(j&&j.value&&j.value.accent?j.value.accent:null);
+  }).catch(function(){cb(null);});
+}
+function monetOn(){
+  loadTheme(function(a){
+    if(a&&a.length>=3){applyAccent(a);}
+    else{
+      monetOff();
+      $('meta').textContent='还没收到系统配色：让采集端 PUT /theme/monet（见 /docs 第 2 节），收到后点一次即可';
+    }
+  });
 }
 (function(){
   var mb=$('btnMonet');if(!mb)return;
-  var saved=localStorage.getItem(MK);
-  if(saved!==null)applyHue(+saved,true);
-  mb.onclick=function(ev){
-    var on=document.body.classList.contains('monet');
-    if(on&&!ev.shiftKey){monetOff();return;}      /* 再点一下关掉 */
-    if(ev.shiftKey||!on){pickWall();}             /* 首次 / Shift+点击：换壁纸 */
+  mb.onclick=function(){
+    if(document.body.classList.contains('monet')){monetOff();return;}
+    monetOn();
   };
+  /* URL 覆盖：/?accent=255,140,80（调试或临时手填） */
+  var m=/[?&]accent=([0-9]{1,3}),([0-9]{1,3}),([0-9]{1,3})/.exec(location.search);
+  if(m){applyAccent([+m[1],+m[2],+m[3]],true);return;}
+  if(localStorage.getItem(MK)==='1'){
+    loadTheme(function(a){if(a&&a.length>=3)applyAccent(a,true);else localStorage.removeItem(MK);});
+  }
 })();
-console.log('%c🍥 图灵派 · 柴的设备续航看板','color:#f472b6;font-weight:700');
-
 load();
 setInterval(load,60000);
 })();

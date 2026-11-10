@@ -144,5 +144,39 @@ await putRaw('status/ios', { phase: 'M2', ts: 1 });
 q = await putRaw('status/ios', { phase: 'M2', ts: 2 });
 chk('status/* 不去抖（版本照涨）', q.body && q.body.version === 2, q.body && q.body.version);
 
+// ── /dash/theme（看板 cookie 鉴权）────────────────────────────────
+const themeReq = async (env, cookie) => {
+  const headers = cookie ? { cookie } : {};
+  const res = await handler(new Request(B + '/dash/theme', { headers }), env, {});
+  let body = null;
+  try { body = await res.clone().json(); } catch { body = null; }
+  return { res, body };
+};
+// 走一次真实登录拿 cookie（值 = sha256('ws-dash-v1|密码|token')，不能直接塞 token）
+const loginFor = async (env) => {
+  const lr = await handler(new Request(B + '/dash', {
+    method: 'POST',
+    headers: { 'content-type': 'application/x-www-form-urlencoded' },
+    body: 'pwd=114514',
+  }), env, {});
+  return (lr.headers.get('set-cookie') || '').split(';')[0];
+};
+const ck = await loginFor(mkEnv());
+chk('登录拿到 ws_dash cookie', ck.indexOf('ws_dash=') === 0, ck);
+let th = await themeReq(mkEnv(), null);
+chk('/dash/theme 无 cookie 401', th.res.status === 401, th.res.status);
+th = await themeReq(mkEnv(), ck);
+chk('/dash/theme 有 cookie 200', th.res.status === 200, th.res.status);
+chk('/dash/theme 无主题时 value=null', th.body && th.body.value === null, JSON.stringify(th.body));
+// 推一次系统配色，再读回来
+const env4 = mkEnv();
+await handler(new Request(B + '/theme/monet', {
+  method: 'PUT',
+  headers: { 'x-sync-token': TOKEN, 'content-type': 'application/json' },
+  body: JSON.stringify({ value: { accent: [255, 140, 80], src: 'android', ts: 1 } }),
+}), env4, {});
+th = await themeReq(env4, ck);
+chk('/dash/theme 读到系统配色', th.body && th.body.value && th.body.value.accent[0] === 255, JSON.stringify(th.body));
+
 console.log('\npass=' + pass + ' fail=' + fail);
 if (fail) process.exit(1);

@@ -305,12 +305,24 @@ const DOCS_HTML = `<!doctype html>
 <b>DELETE</b> /:key                          <i>token · 同时清理 @hist:&lt;key&gt;</i>
 <b>GET</b>    /dash/hist?key=&amp;range=         <i>token · 只读历史（原生端专用，已带 CORS）</i>
 <b>GET</b>    /dash/stats?key=&amp;range=        <i>token · 预测统计：速率/续航/充电段/文案全部算好，客户端零算法</i>
+<b>GET</b>    /dash/theme                     <i>看板 cookie · 系统配色 {key:"theme/monet",value:{accent:[r,g,b]}|null}</i>
 <b>GET</b>    /status                        <i>token 或看板 cookie · 各端状态聚合</i>
 <b>GET</b>    /dev · /docs                   <i>协作台（需登录）· 本文档（公开）</i></pre>
     <p class="note">鉴权二选一：请求头 <code>x-sync-token</code>；或先 <code>POST /dash</code> 用 <code>DASH_PWD</code> 换 <code>ws_dash</code> cookie。原生端<b>不要</b>内置看板密码。</p>
     <p class="note"><b>写入去抖（v11.8，省 KV 写额度）</b>：<code>PUT</code> 一台设备的电量时，若<b>业务字段没变</b>（<code>level</code> / <code>charging</code> 等，忽略 <code>ts</code>）且距上次成功写入不足 <b>10 分钟</b>，服务端<b>不写 KV</b>，直接把旧记录回给你并带响应头 <code>x-sync-coalesced: 1</code>（<code>version</code> 不涨、<code>updatedAt</code> 不变）。这是有意为之：手表端约 3 分钟上报一次、电量半小时才降 1%，不去抖的话一天 ~515 次写，会撞 KV 免费额度。客户端看到 <code>x-sync-coalesced</code> 应当<b>当作成功</b>，不要重试。每 10 分钟仍会有一次「心跳写」保证 <code>updatedAt</code> 不过期。<code>status/*</code> 等协作状态键<b>不去抖</b>，必须实时。</p>
   </div>
 
+  <div class="h2">2.5 · 系统配色（theme/monet）</div>
+  <div class="panel">
+    <p class="note">看板上的「莫奈取色」<b>不是</b>让用户选壁纸去猜色，而是直接读系统的 Material You 强调色。链路只有两步：采集端推一次，页面读一次。</p>
+<pre><b>PUT</b> /theme/monet        <i>token · {"value":{"accent":[255,140,80],"src":"android","ts":1794311877558}}</i>
+<b>GET</b> /dash/theme         <i>看板 cookie · {"key":"theme/monet","value":{"accent":[...]}|null,"updatedAt":"..."}</i></pre>
+    <p class="note">Android 侧取值（放在采集端/Hook 里，反正你已经在读设备信息了）：</p>
+<pre>val id = resources.getIdentifier("system_accent1_200", "color", "android")
+val c = resources.getColor(id, null)
+val rgb = [(c shr 16) and 0xFF, (c shr 8) and 0xFF, c and 0xFF]</pre>
+    <p class="note">然后用同一个 <code>x-sync-token</code> 把 <code>rgb</code> PUT 上来即可，换主题后重推一次就会跟着变。<b>没推过也没关系</b>：页面会自己把开关关掉并提示「还没收到系统配色」，不会回退到乱猜的颜色。非 Android 端（iPad/iOS）本来就没有系统配色，忽略这个开关。</p>
+  </div>
   <div class="h2">3 · 历史与采样</div>
   <div class="panel">
 <pre><b>GET</b> /dash/hist?key=watch/battery&amp;range=86400000

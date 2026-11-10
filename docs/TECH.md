@@ -538,6 +538,23 @@ KV 免费额度是 **1000 写/天/账户**，50% = 500。UTC 11:30＝北京时�
 
 **预期**：~515 → **~185 次/天**（144 心跳 + ~40 变化），降到告警线以下且留足余量。
 
+### 11.10 系统配色 theme/monet 与 canvas 变量坑（v11.8.1）
+
+**需求变更**：v11.8 首版的莫奈取色是「让用户选一张壁纸 → canvas 量化主色」，被否掉——本地图片猜出来的颜色既不是系统配色，交互也多余。改成**读系统**：采集端把 `android.R.color.system_accent1_200` 推到 KV 的 `theme/monet`，页面走 `GET /dash/theme`（看板 cookie 鉴权）读回来。
+
+**同时修的真 bug**：v11.8 为了让强调色可换，把 CSS 里的 `rgba(59,130,246,.x)` 全量替换成了 `rgba(var(--accent-rgb),.x)`，其中一处落在 `<script>` 里：
+
+```js
+grd.addColorStop(1, 'rgba(var(--accent-rgb),.30)');
+```
+
+`CanvasGradient.addColorStop` 只吃**真实颜色字符串**，不解析 CSS 变量，于是抛
+`SyntaxError: Failed to execute 'addColorStop' on 'CanvasGradient'`。异常发生在 `drawBars()` 里，而它位于 `renderAll()` 中段 → 后面的统计、明细表全都没渲染，表现就是「页面加载变快了（提前中断），但一堆东西没出来」。
+
+**修法**：canvas 侧单独一套 `ACC` 变量 + `acc(alpha)` 拼字符串，切换主题时同时更新 CSS 变量与 `ACC`，两个出口各走各的。
+
+**回归**：`test_page_smoke` 新增三条断言 —— 脚本里不出现 `var(--accent`、`addColorStop` 不接 `var(`、莫奈走 `/dash/theme` 且不含 `FileReader`；`test_stats` 新增 4 条 `/dash/theme` 契约（无 cookie 401、有 cookie 200、空主题 null、推过之后读得到）。
+
 ## 12. 版本记录
 
 | 版本 | 变更 |
