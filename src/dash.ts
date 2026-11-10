@@ -575,7 +575,7 @@ function dashHtml(): string {
     <div class="tblwrap">
       <table>
         <thead><tr>
-          <th>时间</th><th>电量</th><th>变化</th><th id="thSince">距上次掉电</th><th>状态</th><th title="采集端模块版本（Hook 的 mv 字段）。同一段曲线若跨版本，可据此判断数据来源">模块</th><th title="该设备这条记录被成功写入的次数，去重跳过的采样也会计入，所以不连续">写入序</th>
+          <th>时间</th><th>电量</th><th>变化</th><th id="thSince">距上次掉电</th><th>状态</th><th title="采集端模块版本（Hook 的 mv 字段）。同一段曲线若跨版本，可据此判断数据来源">模块</th><th title="该设备这条记录真正落库的次数（v11.8 起同值上报会被去抖跳过，所以它不等于上报次数，也不连续）">写入序</th>
         </tr></thead>
         <tbody id="rows"></tbody>
       </table>
